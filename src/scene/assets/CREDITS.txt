@@ -1,0 +1,46 @@
+NASA Earth Observatory visual assets used by P2
+
+Earth surface: Blue Marble Next Generation, June 2004 composite, 5400 x 2700.
+https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/base-map/
+https://assets.science.nasa.gov/content/dam/science/esd/eo/images/bmng/bmng-base/june/world.200406.3x5400x2700.jpg
+Credit: NASA Earth Observatory; Reto Stockli.
+
+Global clouds: Blue Marble (2002), cloud composite, 2048 x 1024.
+https://science.nasa.gov/earth/earth-observatory/the-blue-marble-true-color-global-imagery-at-1km-resolution/
+https://assets.science.nasa.gov/content/dam/science/esd/eo/content-feature/bluemarble/images/cloud_combined_2048.jpg
+Credit: NASA Goddard Space Flight Center; Reto Stockli and Robert Simmon.
+
+Cape Canaveral: EO-1 Advanced Land Imager, June 9, 2002.
+https://science.nasa.gov/earth/earth-observatory/apollo-11-launch-pad-39376/
+https://assets.science.nasa.gov/dynamicimage/assets/science/esd/eo/images/imagerecords/39000/39376/canaveral_ali_2002160_lrg.jpg
+Credit: NASA Earth Observatory; Robert Simmon, using ALI data distributed by USGS.
+
+These are historical visual reference composites, not weather forecasts or
+current imagery for the selected mission date. The launch landscape is a
+presentation backdrop, not a surveyed reconstruction. Static launch-pad cloud
+art is original artwork informed by NASA launch imagery.
+Original project files in src/data/ remain unchanged.
+
+Real launch cinematic: artemis-launch.mp4.
+Historical Artemis II launch footage, April 1, 2026. Credit: NASA.
+Edited into a silent 9.5-second, 1280 x 720, 30 fps H.264 montage.
+The original camera framing and source playback speed are preserved; footage
+is not a simulation of the selected mission date, launch vehicle performance,
+or selected mission requirements. Hard cuts omit time between flight phases.
+
+Output 0.0-4.0 seconds: source 32.5-36.5 seconds, mobile-launcher camera.
+NASA Kennedy Space Center, Artemis II Launch ISO ML PAO PTZ 4K.
+NASA ID: KSC-20260401-MH-AJN01-0001-Artemis_II_Launch_ISO_ML_PAO_PTZ_4K
+https://images.nasa.gov/details/KSC-20260401-MH-AJN01-0001-Artemis_II_Launch_ISO_ML_PAO_PTZ_4K
+https://images-assets.nasa.gov/video/KSC-20260401-MH-AJN01-0001-Artemis_II_Launch_ISO_ML_PAO_PTZ_4K/KSC-20260401-MH-AJN01-0001-Artemis_II_Launch_ISO_ML_PAO_PTZ_4K~large.mp4
+
+Output 4.0-7.0 seconds: source 62.0-65.0 seconds, powered-ascent tracking camera.
+Output 7.0-9.5 seconds: source 80.0-82.5 seconds, onboard Earth/cloud view.
+NASA Goddard Scientific Visualization Studio, Artemis II launch live, ID 31385.
+Source edit: Artemis 2 launch with multi camera edit including onboard camera
+footage, short version. Editor: Mark Malanoski (Global Science and Technology).
+https://svs.gsfc.nasa.gov/31385
+https://svs.gsfc.nasa.gov/vis/a030000/a031300/a031385/Artemis-2-launch-short-1080.mp4
+
+NASA media usage guidelines:
+https://www.nasa.gov/nasa-brand-center/images-and-media/
