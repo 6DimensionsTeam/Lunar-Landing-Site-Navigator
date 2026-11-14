@@ -1,0 +1,26 @@
+{
+  "start_utc": "2026-01-01T00:00:00Z",
+  "end_utc": "2041-01-01T00:00:00Z",
+  "start_year": 2026,
+  "end_year": 2040,
+  "step_hours": 3,
+  "count": 43832,
+  "fields": [
+    "sun_dir_x",
+    "sun_dir_y",
+    "sun_dir_z",
+    "earth_km_x",
+    "earth_km_y",
+    "earth_km_z",
+    "q_x",
+    "q_y",
+    "q_z",
+    "q_w",
+    "earth_q_x",
+    "earth_q_y",
+    "earth_q_z",
+    "earth_q_w"
+  ],
+  "frame": "MOON_ME_DE421",
+  "source": "JPL DE421 + moon_pa_de421_1900-2050.bpc + moon_080317.tf (Skyfield)"
+}

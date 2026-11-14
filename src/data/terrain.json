@@ -1,0 +1,30 @@
+{
+  "radius_m": 1737400.0,
+  "dn_scale_m": 0.5,
+  "tiles": {
+    "hero": {
+      "file": "terrain_hero.bin",
+      "size": 1536,
+      "res_m": 40.0,
+      "half_extent_m": 30720.0,
+      "min_m": -3635.0,
+      "max_m": 1958.0
+    },
+    "inner": {
+      "file": "terrain_inner.bin",
+      "size": 2528,
+      "res_m": 120.0,
+      "half_extent_m": 151680.0,
+      "min_m": -5499.0,
+      "max_m": 7025.0
+    },
+    "outer": {
+      "file": "terrain_outer.bin",
+      "size": 1906,
+      "res_m": 480.0,
+      "half_extent_m": 457440.0,
+      "min_m": -7757.0,
+      "max_m": 7014.0
+    }
+  }
+}

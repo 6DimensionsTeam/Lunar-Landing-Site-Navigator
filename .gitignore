@@ -1,0 +1,8 @@
+.DS_Store
+data/raw/
+tools/.venv/
+node_modules/
+__pycache__/
+data/preview_*.png
+dist/
+shots/

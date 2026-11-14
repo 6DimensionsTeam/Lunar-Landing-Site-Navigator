@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>Lunar Landing Site Navigator</title>
+    <link rel="stylesheet" href="./src/style.css" />
+  </head>
+  <body>
+    <canvas id="scene" role="img" aria-label="Live render of the lunar south pole: Shackleton crater, with the Earth and the Sun above the horizon"></canvas>
+
+    <section id="boot" aria-label="System start-up">
+      <div class="boot-box">
+        <p class="boot-head"><b>LLN</b> Lunar Landing Site Navigator <span>v1.0 · <span data-k="eph-range">2028</span></span></p>
+        <ol id="boot-log" aria-live="polite"></ol>
+        <div class="boot-track"><i id="boot-bar"></i></div>
+      </div>
+    </section>
+
+    <div id="hud">
+      <div class="frame" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+
+      <main id="home" hidden>
+        <div class="grid" aria-hidden="true"></div>
+        <header class="topbar">
+          <p class="loc"><b>Lunar South Pole</b></p>
+          <p class="clock"><b class="id">LLN-01</b> <span class="dim mt">MISSION TIME</span> <time data-k="clock" data-tab>----</time> <span class="dim">UTC</span></p>
+        </header>
+
+        <div class="title">
+          <p class="kicker"><b>ARTEMIS</b> <span>ERA · SOUTH POLE RECONNAISSANCE</span></p>
+          <h1>Lunar Landing Site</h1>
+          <p class="sub">NAVIGATOR</p>
+          <p class="desc">LRO / LOLA measured terrain · JPL DE421 ephemeris · sunlight and direct-to-Earth visibility across the <span data-k="eph-range">2028</span> mission window</p>
+        </div>
+
+        <div class="tags">
+          <div class="tag" data-tag="earth">
+            <svg class="ret" aria-hidden="true"><circle cx="0" cy="0" r="20" /><path d="" /></svg>
+            <svg class="lead" aria-hidden="true"><polyline points="0,0 0,0" pathLength="1" /></svg>
+            <p class="lbl"><b>Earth</b><span data-k="earth-data">—</span></p>
+          </div>
+          <div class="tag" data-tag="sun">
+            <svg class="ret" aria-hidden="true"><path d="" /></svg>
+            <svg class="lead" aria-hidden="true"><polyline points="0,0 0,0" pathLength="1" /></svg>
+            <p class="lbl"><b>Sun</b><span data-k="sun-data">—</span></p>
+          </div>
+          <div class="tag" data-tag="crater">
+            <svg class="ret" aria-hidden="true"><circle cx="0" cy="0" r="6" /></svg>
+            <svg class="lead" aria-hidden="true"><polyline points="0,0 0,0" pathLength="1" /></svg>
+            <p class="lbl"><b>Shackleton Crater</b><span data-k="crater-data">—</span></p>
+          </div>
+          <div class="sites-mk"></div>
+        </div>
+
+        <div class="dock">
+          <section class="panel sites" aria-labelledby="sites-h">
+            <h2 id="sites-h">Candidate Sites · <span data-k="stats-year">2028</span> Average</h2>
+            <table>
+              <thead><tr><th scope="col">Site</th><th scope="col">Sunlight</th><th scope="col">Earth</th><th scope="col">Longest night</th></tr></thead>
+              <tbody id="sites-body"></tbody>
+            </table>
+            <p class="credit sites-note">LOLA horizon profiles × DE421 ephemeris, <span data-k="eph-step">3 h</span> steps · <i aria-hidden="true"></i> best in each column</p>
+          </section>
+
+          <div class="cta-stack">
+            <button id="enter" class="cta" type="button">
+              <span class="cta-en">Enter Navigation</span>
+            </button>
+            <button id="toorbit" class="cta2" type="button">Relay Station <span class="cta-sub">HALO</span></button>
+          </div>
+
+          <section class="panel live" aria-labelledby="live-h">
+            <h2 id="live-h"><i>A</i> Shackleton Rim <span class="rt">LIVE</span></h2>
+            <dl class="rows">
+              <div><dt>Sun</dt><dd><span data-k="sun-el">—</span><em data-pill="sun">—</em></dd></div>
+              <div><dt>Earth</dt><dd><span data-k="earth-el">—</span><em data-pill="earth">—</em></dd></div>
+            </dl>
+            <!-- countdown card: one large numeral, its unit, and the event spelled out beneath -->
+            <div class="card" role="timer" aria-live="off">
+              <span class="sr" data-k="cd-sr"></span>
+              <div class="card-top" aria-hidden="true">
+                <p class="card-l"><span data-k="cd-label">—</span><span class="card-left">LEFT</span></p>
+                <b class="card-n" data-k="cd-big">—</b>
+                <span class="card-u" data-k="cd-unit"></span>
+              </div>
+              <p class="card-en" aria-hidden="true" data-k="cd-en">—</p>
+              <p class="cd" aria-hidden="true" data-k="cd" data-tab>—</p>
+              <p class="cd-next" data-k="cd-next"></p>
+            </div>
+          </section>
+        </div>
+      </main>
+
+      <section id="explore" hidden aria-label="Free exploration">
+        <header class="topbar">
+          <button id="back" class="back" type="button">Back <kbd>ESC</kbd></button>
+          <p class="loc"><b>Shackleton Crater</b> <span>FREE CAMERA</span></p>
+          <p class="clock"><time data-k="clock" data-tab>----</time> <span class="dim">UTC</span></p>
+        </header>
+        <p class="hint"><span><b>Drag</b> rotate</span> <span><b>Scroll</b> zoom</span> <span><b>Right-drag</b> pan</span></p>
+        <button id="torover" class="cta2 rover-cta" type="button">Rover Close-up</button>
+      </section>
+
+      <section id="orbit" hidden aria-label="Relay station">
+        <header class="topbar">
+          <button id="oback" class="back" type="button">Back <kbd>ESC</kbd></button>
+          <p class="loc"><b>HALO</b> <span>LUNAR RELAY STATION</span></p>
+          <p class="clock"><time data-k="clock" data-tab>----</time> <span class="dim">UTC</span></p>
+        </header>
+
+        <div class="ttl">
+          <p class="ttl-k"><b>LLN-LRS01</b> <span>Lunar relay orbit</span></p>
+          <h1>HALO</h1>
+          <p class="ttl-en">LUNAR RELAY STATION</p>
+          <p class="ttl-d">Core modules from NASA's public Gateway model: the gravity ring is 16 copies of the same airlock bent into a circle, and the docking ports and propulsion module come from the same model. Seven-nozzle main engine aft.</p>
+        </div>
+
+        <div class="tags">
+          <div class="tag" data-tag="core">
+            <svg class="ret" aria-hidden="true"><circle cx="0" cy="0" r="5" /></svg>
+            <svg class="lead" aria-hidden="true"><polyline points="0,0 0,0" pathLength="1" /></svg>
+            <p class="lbl"><b>Gateway Core</b><span>PPE · HALO · I-Hab · Airlock · Canadarm</span></p>
+          </div>
+          <div class="tag" data-tag="ring">
+            <svg class="ret" aria-hidden="true"><circle cx="0" cy="0" r="5" /></svg>
+            <svg class="lead" aria-hidden="true"><polyline points="0,0 0,0" pathLength="1" /></svg>
+            <p class="lbl"><b>Gravity Ring</b><span data-k="o-ring">—</span></p>
+          </div>
+          <div class="tag" data-tag="array">
+            <svg class="ret" aria-hidden="true"><circle cx="0" cy="0" r="5" /></svg>
+            <svg class="lead" aria-hidden="true"><polyline points="0,0 0,0" pathLength="1" /></svg>
+            <p class="lbl"><b>Solar Arrays</b><span>6 wings · 43 m span · Sun-tracking</span></p>
+          </div>
+          <div class="tag" data-tag="engine">
+            <svg class="ret" aria-hidden="true"><circle cx="0" cy="0" r="5" /></svg>
+            <svg class="lead" aria-hidden="true"><polyline points="0,0 0,0" pathLength="1" /></svg>
+            <p class="lbl"><b>Main Engine</b><span>7 nozzles · 8.1 m · standby</span></p>
+          </div>
+          <div class="tag" data-tag="ocrater">
+            <svg class="ret" aria-hidden="true"><circle cx="0" cy="0" r="6" /></svg>
+            <svg class="lead" aria-hidden="true"><polyline points="0,0 0,0" pathLength="1" /></svg>
+            <p class="lbl"><b>Shackleton Crater</b><span data-k="o-dist">—</span></p>
+          </div>
+        </div>
+
+        <div class="dock">
+          <section class="panel params" aria-labelledby="op-h">
+            <h2 id="op-h">Relay Orbit</h2>
+            <dl class="rows">
+              <div><dt>Apolune</dt><dd data-k="o-apolune">—</dd></div>
+              <div><dt>Perilune</dt><dd data-k="o-perilune">—</dd></div>
+              <div><dt>Inclination</dt><dd data-k="o-inc">—</dd></div>
+              <div><dt>Period</dt><dd data-k="o-period">—</dd></div>
+              <div><dt>Velocity</dt><dd data-k="o-v">—</dd></div>
+            </dl>
+            <p class="credit">Core modules: NASA 3D Resources · Gateway Core</p>
+          </section>
+
+          <div class="cta-stack">
+            <button id="descend" class="cta" type="button">
+              <span class="cta-en">Descend to Site A</span>
+            </button>
+          </div>
+
+          <section class="panel live" aria-labelledby="os-h">
+            <h2 id="os-h"><i>H</i> HALO Status <span class="rt">LIVE</span></h2>
+            <dl class="rows">
+              <div><dt>Sun</dt><dd><span data-k="o-sun-el">—</span><em data-pill="osun">—</em></dd></div>
+              <div><dt>Earth</dt><dd><span data-k="o-earth-el">—</span><em data-pill="oearth">—</em></dd></div>
+              <div><dt>Ring</dt><dd data-k="o-ring">—</dd></div>
+            </dl>
+          </section>
+        </div>
+      </section>
+
+
+      <section id="rover" hidden aria-label="Rover close-up" tabindex="-1">
+        <header class="topbar">
+          <button id="rback" class="back" type="button">Back to Rim <kbd>ESC</kbd></button>
+          <p class="loc"><b>Shackleton Rim</b> <span>LANDING SITE A</span></p>
+          <p class="clock"><time data-k="clock" data-tab>----</time> <span class="dim">UTC</span></p>
+        </header>
+
+        <div class="ttl">
+          <p class="ttl-k"><b>LPR-01</b> <span>Lunar surface rover</span></p>
+          <h1>Polar Rover</h1>
+          <p class="ttl-en">LUNAR POLE EXPLORATION ROVER</p>
+          <p class="ttl-d">Four-wheel independent steering, mast navigation camera, three vertical solar panels. Model and joints from the Space ROS URDF (after NASA VIPER).</p>
+        </div>
+
+        <div class="dock">
+          <section class="panel tele" aria-labelledby="rt-h">
+            <h2 id="rt-h">Rover</h2>
+            <dl class="rows">
+              <div><dt>Speed</dt><dd data-k="r-v">—</dd></div>
+              <div><dt>Heading</dt><dd data-k="r-hdg">—</dd></div>
+              <div><dt>Slope</dt><dd data-k="r-slope">—</dd></div>
+              <div><dt>Steering</dt><dd data-k="r-mode">—</dd></div>
+              <div><dt>Odometer</dt><dd data-k="r-odo">—</dd></div>
+            </dl>
+            <p class="credit">Rover model: Space ROS · lunar_pole_exploration_rover (Apache-2.0)</p>
+          </section>
+
+          <p class="rhint">
+            <span><kbd>W</kbd><kbd>S</kbd>drive</span><span><kbd>A</kbd><kbd>D</kbd>steer</span><span><kbd>Q</kbd><kbd>E</kbd>crab</span><span><kbd class="w">Space</kbd>brake</span>
+            <span><kbd>L</kbd>lights</span><span><kbd>N</kbd>navcam</span><span><kbd class="w">Click</kbd>parts</span><span><kbd class="w">Drag</kbd>look</span>
+          </p>
+
+          <section class="panel live rlive" aria-labelledby="rl-h">
+            <h2 id="rl-h"><i>A</i> Rover Sun <span class="rt">LIVE</span></h2>
+            <dl class="rows">
+              <div><dt>Sun</dt><dd><span data-k="r-sun">—</span><em data-pill="rsun">—</em></dd></div>
+              <div><dt>Power</dt><dd data-k="r-pow">—</dd></div>
+              <div><dt>Lights</dt><dd><button id="rlights" class="mini" type="button" aria-pressed="false">Off</button></dd></div>
+              <div><dt>Time</dt><dd><button id="rtime" class="mini" type="button">Jump to sunset</button></dd></div>
+            </dl>
+            <p class="rwarn" data-k="r-warn" role="status"></p>
+          </section>
+        </div>
+
+        <div class="navcam" id="navcam" hidden>
+          <p class="nc-h"><b>NAVCAM</b> <span class="rt">LIVE</span></p>
+          <i class="nc-ret" aria-hidden="true"></i>
+          <p class="nc-r"><span>PAN <b data-k="nc-pan">—</b></span> <span>TILT <b data-k="nc-tilt">—</b></span> <span>RNG <b data-k="nc-rng">—</b></span></p>
+        </div>
+
+        <div class="pcard" id="pcard" hidden>
+          <svg class="ret" aria-hidden="true" viewBox="-12 -12 24 24"><circle cx="0" cy="0" r="6" /></svg>
+          <svg class="lead" aria-hidden="true"><polyline points="0,0 0,0" /></svg>
+          <section class="panel pc-box" aria-live="polite">
+            <h2><span class="pc-name"></span><button class="pc-x" type="button" aria-label="Close">×</button></h2>
+            <dl class="rows pc-rows"></dl>
+            <p class="pc-note"></p>
+          </section>
+        </div>
+        <p class="hchip" id="hchip" hidden></p>
+
+        <div class="touch" aria-hidden="true">
+          <div class="joy" id="joy"><i></i></div>
+          <div class="tbtn"><button id="tlights" type="button">Lights</button><button id="tnav" type="button">Navcam</button></div>
+        </div>
+      </section>
+
+      <div id="veil" aria-hidden="true"></div>
+    </div>
+
+    <script type="module" src="./src/main.js"></script>
+  </body>
+</html>

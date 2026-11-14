@@ -1,0 +1,69 @@
+{
+  "step_days": 6,
+  "sites": [
+    {
+      "name": "S1",
+      "lat": -89.5,
+      "lon": 200.0,
+      "targets": {
+        "sun": {
+          "samples": 61,
+          "max_err_el_deg": 0.0006862878529304561,
+          "mean_err_el_deg": 0.0006653294632414984,
+          "max_err_az_deg": 5.69173334952211e-06,
+          "mean_err_az_deg": 1.9323665261723723e-06
+        },
+        "earth": {
+          "samples": 61,
+          "max_err_el_deg": 3.4468370770035506e-05,
+          "mean_err_el_deg": 1.7340140945177685e-05,
+          "max_err_az_deg": 8.048843398000827e-06,
+          "mean_err_az_deg": 2.480262866054575e-06
+        }
+      }
+    },
+    {
+      "name": "S2",
+      "lat": -88.7,
+      "lon": 290.0,
+      "targets": {
+        "sun": {
+          "samples": 61,
+          "max_err_el_deg": 0.0006859919674836457,
+          "mean_err_el_deg": 0.000665247947937822,
+          "max_err_az_deg": 6.018619529868374e-06,
+          "mean_err_az_deg": 1.9325163770727306e-06
+        },
+        "earth": {
+          "samples": 61,
+          "max_err_el_deg": 3.470380432712972e-05,
+          "mean_err_el_deg": 1.7374244626003126e-05,
+          "max_err_az_deg": 7.610421903336828e-06,
+          "mean_err_az_deg": 2.40717022382073e-06
+        }
+      }
+    },
+    {
+      "name": "S3",
+      "lat": -86.0,
+      "lon": 0.0,
+      "targets": {
+        "sun": {
+          "samples": 61,
+          "max_err_el_deg": 0.0006844598454911477,
+          "mean_err_el_deg": 0.0006645781371383447,
+          "max_err_az_deg": 5.886214040629056e-06,
+          "mean_err_az_deg": 1.970782925880366e-06
+        },
+        "earth": {
+          "samples": 61,
+          "max_err_el_deg": 3.457930875572224e-05,
+          "mean_err_el_deg": 1.7336719865986348e-05,
+          "max_err_az_deg": 7.63398617209532e-06,
+          "mean_err_az_deg": 2.5660222418156963e-06
+        }
+      }
+    }
+  ],
+  "worst_el_err_deg": 0.0006862878529304561
+}
