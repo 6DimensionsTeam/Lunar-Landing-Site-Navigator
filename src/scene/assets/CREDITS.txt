@@ -44,3 +44,22 @@ https://svs.gsfc.nasa.gov/vis/a030000/a031300/a031385/Artemis-2-launch-short-108
 
 NASA media usage guidelines:
 https://www.nasa.gov/nasa-brand-center/images-and-media/
+
+Cinematic editing reference (no additional trailer footage or music included):
+Around the Moon for All Humanity: Artemis II (Official Launch Trailer), NASA.
+https://images.nasa.gov/details/Around%20the%20Moon%20for%20All%20Humanity%20Artemis%20II%20(Official%20Launch%20Trailer)
+The interactive scene uses separate wide and close camera setups, with a brief
+black cut between different scene scales. It is a presentation transition,
+not a continuous physical descent from Earth orbit to the launch pad.
+The original 5400-pixel Earth image is retained in the package; its GPU upload
+is limited to 4096 pixels on the longest side to bound graphics memory use.
+The moving transfer marker is a 14-second, time-compressed two-body preview,
+not a live vehicle location. Surface weather remains illustrative.
+
+Launch HUD reference events
+NASA Artemis II press kit: https://www.nasa.gov/artemis-ii-press-kit/
+Planned reference times: solid rocket booster separation +02:08; core main-engine cutoff +08:06.
+These are not the montage playback clock or verified telemetry of its individual shots.
+NASA SVS subtitles place booster separation outside the included montage segments:
+https://svs.gsfc.nasa.gov/vis/a030000/a031300/a031385/Artemis%202%20launch%20Short.srt
+The montage does not show separation. No live altitude or velocity is claimed.

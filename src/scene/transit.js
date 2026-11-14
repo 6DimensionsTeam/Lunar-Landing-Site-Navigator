@@ -1,6 +1,6 @@
 import * as T from 'three';
 import { Ephemeris, ME_TO_SCENE } from '../ephemeris.js';
-import { solveLunarTransfer } from './trajectory.js';
+import { solveLunarTransfer, sampleTransfer } from './trajectory.js';
 import { createAscentEnvironment } from './ascent-environment.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
@@ -12,7 +12,7 @@ const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const smooth = value => { const t = clamp(value, 0, 1); return t * t * (3 - 2 * t); };
 
 /** Independent Earth–Moon preview and launch-site configuration scene. */
-export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnchor, onPerformance, onTransfer }) {
+export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnchor, onPerformance, onTransfer, onTransition, onAnchors, onRouteProgress }) {
   if (!canvas || !eph || typeof eph.update !== 'function') throw new TypeError('A canvas and ephemeris are required.');
   const meta = data?.ephemMeta ?? { count: eph.count, step_hours: eph.stepH, start_utc: new Date(eph.start).toISOString(), start_year: eph.startYear, end_year: eph.endYear };
   const samples = data?.ephem ?? eph.buf, radiusKm = data?.radiusKm ?? eph.R;
@@ -33,8 +33,10 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
   const target = v(), moonDirection = v(1), sunDirection = v(0, 1), moonCenter = v(), basisUp = v(0, 1), basisSide = v(0, 0, 1);
   const padSun = v(1, 1, 1), resources = new Set(), root = canvas.closest('#mission');
   let width = 1, height = 1, stage = 'orbit', frameId = 0, disposed = false, dive = null;
-  let displayH = 0, rawSun = [], rawEarth = [], lastAnchor = '', trajectory = null, lastRender = 0, quality = 1, smoothedFrameMs = 16;
+  let displayH = NaN, rawSun = [], rawEarth = [], lastAnchor = '', trajectory = null, lastRender = 0, quality = 1, smoothedFrameMs = 16;
   let renderedFrames = 0, perfStart = performance.now(), hiddenAt = null, orbitStarted = performance.now();
+  let presented = false, lastPublish = -Infinity, suspendedAt = null, trajectoryScale = 1, previewState = null;
+  const previewPeriodMs = 14000, previewPosition = v(), injectionPosition = v(), midcoursePosition = v(), arrivalPosition = v();
   const sun = new T.DirectionalLight(0xfff8ef, 2.6); scene.add(sun, sun.target);
   const ambient = new T.AmbientLight(0x83a3c1, .18); scene.add(ambient);
   let seed = 71612;
@@ -48,6 +50,14 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
   const loader = new T.TextureLoader(); let loaded = 0;
   const loadTexture = async (url, label) => {
     const texture = await loader.loadAsync(url); texture.colorSpace = T.SRGBColorSpace;
+    // Keep the original NASA image in the package while bounding the GPU upload.
+    const limit = Math.min(4096, renderer.capabilities.maxTextureSize), source = texture.image;
+    if (Math.max(source.width, source.height) > limit) {
+      const scale = limit / Math.max(source.width, source.height), raster = document.createElement('canvas');
+      raster.width = Math.round(source.width * scale); raster.height = Math.round(source.height * scale);
+      raster.getContext('2d').drawImage(source, 0, 0, raster.width, raster.height);
+      texture.image = raster; texture.needsUpdate = true;
+    }
     texture.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 4); resources.add(texture);
     onProgress?.({ loaded: ++loaded, total: 6, label }); return texture;
   };
@@ -84,6 +94,10 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
     fragmentShader: 'varying vec3 n;varying vec3 eye;void main(){float a=pow(1.-abs(dot(normalize(n),normalize(eye))),3.);gl_FragColor=vec4(.13,.42,.9,a*.38);}' });
   const atmosphere = new T.Mesh(new T.SphereGeometry(7.85, 48, 32), atmosphereMaterial); space.add(atmosphere);
   const route = new T.Line(new T.BufferGeometry(), new T.LineBasicMaterial({ color: 0xf45142, transparent: true, opacity: .85 })); space.add(route);
+  const routeTicks = new T.LineSegments(new T.BufferGeometry(), new T.LineBasicMaterial({ color: 0xc5c9d0, transparent: true, opacity: .48 })); space.add(routeTicks);
+  const orbitGrid = new T.LineSegments(new T.BufferGeometry(), new T.LineBasicMaterial({ color: 0x7e8e9f, transparent: true, opacity: .11, depthWrite: false })); space.add(orbitGrid);
+  const previewGeometry = new T.BufferGeometry().setAttribute('position', new T.Float32BufferAttribute([0, 0, 0], 3));
+  const previewMarker = new T.Points(previewGeometry, new T.PointsMaterial({ color: 0xffddd4, size: 5, sizeAttenuation: false })); space.add(previewMarker);
   const launchMarker = new T.Mesh(new T.SphereGeometry(.17, 12, 8), new T.MeshBasicMaterial({ color: 0xff654f })); space.add(launchMarker);
   const launch = createLaunchComplex(T); pad.add(launch.group);
   const padAmbient = new T.HemisphereLight(0xc6ddef, 0x33313a, 1.3); pad.add(padAmbient);
@@ -94,13 +108,12 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
   const rim = new T.DirectionalLight(0x7294b9, 1.7); rim.position.set(-65, 90, -75); pad.add(rim);
   const environment = createAscentEnvironment({ T, sunDirection: padSun, terrainMap, resources });
   scene.add(environment.group); environment.group.visible = false;
-  function orbitPose(now = orbitStarted) {
+  function orbitPose() {
     const distance = Math.max(83, 34 / (Math.tan(T.MathUtils.degToRad(camera.fov / 2)) * (width / height))), t = moonDirection.clone().multiplyScalar(22);
     const viewerSide = basisSide.clone().multiplyScalar(sunDirection.dot(basisSide) < 0 ? -1 : 1);
-    const drift = reduced ? 0 : Math.sin((now - orbitStarted) * .00014);
-    // Move the observer, never the ephemeris: keep both sunlit terrain and the night edge readable.
+    // Keep the settled camera still so the instrument labels remain easy to read.
     const offset = viewerSide.addScaledVector(basisUp, .18).addScaledVector(sunDirection, .55).normalize().multiplyScalar(distance);
-    const p = t.clone().add(offset).addScaledVector(basisUp, drift * 3).addScaledVector(moonDirection, drift * 2);
+    const p = t.clone().add(offset);
     return { p, t, up: basisUp.clone() };
   }
   function padPose() {
@@ -108,8 +121,22 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
     return { p: narrow ? v(144, 82, 211) : launch.cameraPosition.clone(), t: narrow ? v(-11, 43, 0) : launch.cameraTarget.clone(), up: v(0, 1, 0) };
   }
   function applyPose(pose) { camera.position.copy(pose.p); target.copy(pose.t); camera.up.copy(pose.up); camera.lookAt(target); }
-  function updateGeometry(h) {
+  function currentPose() { return { p: camera.position.clone(), t: target.clone(), up: camera.up.clone() }; }
+  function widePadPose() {
+    const pose = padPose(); pose.p.sub(pose.t).multiplyScalar(1.18).add(pose.t).add(v(0, 12, 0)); return pose;
+  }
+  function markerPose() {
+    // A scale-changing edit, not a flight to the surface: stop well outside Earth.
+    const p = launchMarker.position.clone().addScaledVector(launchMarker.position.clone().normalize(), 22);
+    return { p, t: launchMarker.position.clone(), up: basisUp.clone() };
+  }
+  function blendPose(a, b, amount) {
+    camera.position.lerpVectors(a.p, b.p, amount); target.lerpVectors(a.t, b.t, amount);
+    camera.up.lerpVectors(a.up, b.up, amount).normalize(); camera.lookAt(target);
+  }
+  function updateGeometry(h, reframe = true) {
     if (!Number.isFinite(h) || h < 0 || h > transitEph.maxH) throw new RangeError('The selected time is outside the ephemeris coverage.');
+    if (h === displayH) return;
     transitEph.update(h); rawSun = transitEph.sunDir.toArray(); rawEarth = transitEph.earthPos.toArray();
     const earthFromMoon = v(...rawEarth); earthFromMoon.y += transitEph.R;
     if (!earthFromMoon.lengthSq()) throw new Error('Invalid ephemeris position.');
@@ -123,54 +150,134 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
     const durationH = Math.min(84, h);
     try {
       trajectory = solveLunarTransfer({ moonPositionKm: earthFromMoon.negate().toArray(), durationH, planeNormal: basisSide.toArray() });
-      const scale = 48 / earthFromMoon.length();
-      route.geometry.dispose(); route.geometry = new T.BufferGeometry().setFromPoints(trajectory.positionsKm.map(p => v(...p).multiplyScalar(scale))); route.visible = true;
-      onTransfer?.({ available: true, durationH, model: 'Earth two-body transfer', endpointErrorKm: trajectory.endpointErrorKm });
+      trajectoryScale = 48 / earthFromMoon.length();
+      const pointAt = progress => v(...sampleTransfer(trajectory, progress).positionKm).multiplyScalar(trajectoryScale);
+      route.geometry.dispose(); route.geometry = new T.BufferGeometry().setFromPoints(trajectory.positionsKm.map(p => v(...p).multiplyScalar(trajectoryScale))); route.visible = true;
+      injectionPosition.copy(pointAt(0)); midcoursePosition.copy(pointAt(.5)); arrivalPosition.copy(pointAt(1));
+      const tickPoints = [];
+      for (let i = 1; i < 10; i++) {
+        const sample = sampleTransfer(trajectory, i / 10), point = v(...sample.positionKm).multiplyScalar(trajectoryScale);
+        const side = v(...sample.velocityKmS).cross(basisSide).normalize().multiplyScalar(.32);
+        tickPoints.push(point.clone().sub(side), point.clone().add(side));
+      }
+      routeTicks.geometry.dispose(); routeTicks.geometry = new T.BufferGeometry().setFromPoints(tickPoints); routeTicks.visible = true;
+      previewMarker.visible = true;
+      const { departureSpeedKmS, arrivalSpeedKmS, departureDistanceKm, arrivalDistanceKm, parkingAltitudeKm, injectionDeltaVKmS, eccentricity, specificEnergyKm2S2, semiMajorAxisKm,
+        perigeeRadiusKm, perigeeAltitudeKm, apogeeRadiusKm, apogeeAltitudeKm, bound, endpointErrorKm } = trajectory;
+      onTransfer?.({ available: true, durationH, model: 'Earth two-body transfer', parkingAltitudeKm, departureSpeedKmS, arrivalSpeedKmS, departureDistanceKm, arrivalDistanceKm,
+        injectionDeltaVKmS, eccentricity, specificEnergyKm2S2, semiMajorAxisKm, perigeeRadiusKm, perigeeAltitudeKm,
+        apogeeRadiusKm, apogeeAltitudeKm, bound, endpointErrorKm });
     } catch (error) {
       if (!(error instanceof RangeError)) throw error;
-      trajectory = null; route.visible = false;
+      trajectory = null; previewState = null; route.visible = routeTicks.visible = previewMarker.visible = false;
       onTransfer?.({ available: false, durationH, model: 'Earth two-body transfer', reason: error.message });
     }
+    const gridPoints = [], gridPoint = (x, y) => moonDirection.clone().multiplyScalar(x).addScaledVector(basisUp, y).addScaledVector(basisSide, -.5);
+    for (let x = -8; x <= 64; x += 8) gridPoints.push(gridPoint(x, -16), gridPoint(x, 16));
+    for (let y = -16; y <= 16; y += 8) gridPoints.push(gridPoint(-8, y), gridPoint(64, y));
+    orbitGrid.geometry.dispose(); orbitGrid.geometry = new T.BufferGeometry().setFromPoints(gridPoints);
     // The selectable launch complex is a map marker; injection is from the assumed parking orbit.
-    launchMarker.position.copy(basisSide).addScaledVector(basisUp, .18).addScaledVector(moonDirection, .12).setLength(7.69);
+    launchMarker.position.copy(basisSide).multiplyScalar(sunDirection.dot(basisSide) < 0 ? -1 : 1).addScaledVector(basisUp, .18).addScaledVector(moonDirection, .12).setLength(7.69);
     displayH = h;
-    if (stage === 'orbit' && !dive) applyPose(orbitPose());
+    orbitStarted = performance.now(); lastPublish = -Infinity;
+    if (reframe && stage === 'orbit' && !dive) applyPose(orbitPose());
   }
   function setVisible(showPad) {
+    const changed = pad.visible !== showPad;
     pad.visible = showPad; space.visible = !showPad;
     scene.fog = showPad ? new T.FogExp2(0x849eac, .00018) : null;
     camera.far = showPad ? 18000000 : 4000; camera.fov = 42; camera.updateProjectionMatrix(); environment.group.visible = showPad; stars.position.set(0, 0, 0); stars.material.opacity = showPad ? 0 : .6;
     ambient.intensity = showPad ? .2 : .18;
-    if (showPad) renderer.shadowMap.needsUpdate = true;
+    if (showPad && changed) renderer.shadowMap.needsUpdate = true;
   }
-  function publishAnchor() {
-    let result = { x: 0, y: 0, visible: false };
-    if (stage === 'orbit' && !dive && space.visible) {
-      camera.updateMatrixWorld(); const projected = launchMarker.position.clone().project(camera);
-      result = { x: (projected.x*.5+.5)*width, y: (-projected.y*.5+.5)*height, visible: projected.z > -1 && projected.z < 1 && Math.abs(projected.x) < .98 && Math.abs(projected.y) < .98 };
+  function updatePreview(now) {
+    if (!trajectory) return;
+    // A 14-second time-compressed preview. The selected arrival geometry stays fixed.
+    const progress = reduced ? .5 : ((now - orbitStarted) % previewPeriodMs) / previewPeriodMs;
+    previewState = sampleTransfer(trajectory, progress);
+    previewPosition.set(...previewState.positionKm).multiplyScalar(trajectoryScale);
+    previewMarker.position.copy(previewPosition);
+  }
+  function projectAnchor(position, enabled, ignoreBody = null) {
+    const projected = position.clone().project(camera);
+    let visible = enabled && projected.z > -1 && projected.z < 1 && Math.abs(projected.x) < .98 && Math.abs(projected.y) < .98;
+    if (visible && space.visible) {
+      const ray = position.clone().sub(camera.position), distance = ray.length(); ray.normalize();
+      for (const [body, radius] of [[earth, 7.6], [moon, 3.4]]) {
+        if (body === ignoreBody) continue;
+        const offset = body.position.clone().sub(camera.position), along = offset.dot(ray);
+        const perpendicularSq = offset.lengthSq() - along * along;
+        if (along > 0 && perpendicularSq < radius * radius && along - Math.sqrt(radius * radius - perpendicularSq) < distance - .02) visible = false;
+      }
     }
+    return { x: (projected.x * .5 + .5) * width, y: (-projected.y * .5 + .5) * height, visible };
+  }
+  function publishAnchors(now = performance.now(), force = false) {
+    if (!force && now - lastPublish < 125) return;
+    lastPublish = now; camera.updateMatrixWorld();
+    const orbitVisible = stage === 'orbit' && !dive && space.visible;
+    const result = projectAnchor(launchMarker.position, orbitVisible);
     const key = `${Math.round(result.x)},${Math.round(result.y)},${result.visible}`;
-    if (key !== lastAnchor) { lastAnchor = key; onLaunchAnchor?.(result); }
+    if (key !== lastAnchor || force) { lastAnchor = key; onLaunchAnchor?.(result); }
+    onAnchors?.({
+      earth: projectAnchor(earth.position, orbitVisible, earth), moon: projectAnchor(moonCenter, orbitVisible, moon), launch: result,
+      injection: projectAnchor(injectionPosition, orbitVisible && !!trajectory), midcourse: projectAnchor(midcoursePosition, orbitVisible && !!trajectory),
+      arrival: projectAnchor(arrivalPosition, orbitVisible && !!trajectory),
+      vehicle: stage === 'pad' ? projectAnchor(v(0, 58, 0), !dive, null) : projectAnchor(previewPosition, orbitVisible && !!trajectory)
+    });
+    if (orbitVisible && previewState) onRouteProgress?.({ progress: previewState.progress, elapsedH: previewState.elapsedS / 3600,
+      distanceKm: previewState.geocentricDistanceKm, speedKmS: previewState.speedKmS });
+  }
+  function transitionStatus(phase, progress, blackout = 0, blurPx = 0) {
+    onTransition?.({ phase, progress, blackout, blurPx });
+  }
+  function finishTransition(cancelled = false) {
+    const pending = dive; dive = null;
+    if (!cancelled) {
+      setVisible(stage === 'pad'); applyPose(stage === 'pad' ? padPose() : orbitPose());
+      transitionStatus('complete', 1); updatePreview(performance.now()); publishAnchors(performance.now(), true);
+    }
+    pending?.resolve({ stage, cancelled });
   }
   function show(next, h = displayH) {
     if (!['orbit','pad'].includes(next)) throw new Error(`Unknown transit stage: ${next}`);
-    const wasOrbit = stage === 'orbit', from = { p: camera.position.clone(), t: target.clone(), up: camera.up.clone() };
-    stage = next; if (next === 'orbit') orbitStarted = performance.now(); dive = null; launch.reset();
-    updateGeometry(h); lastAnchor = '';
-    if (next === 'pad' && wasOrbit && !reduced) { setVisible(false); dive = { start: performance.now(), from, to: padPose(), duration: 1400 }; }
-    else { setVisible(next === 'pad'); applyPose(next === 'pad' ? padPose() : orbitPose()); }
-    publishAnchor();
+    if (disposed) return Promise.resolve({ stage, cancelled: true });
+    const previous = pad.visible ? 'pad' : 'orbit', from = currentPose(), first = !presented;
+    if (dive) finishTransition(true);
+    stage = next; updateGeometry(h, false); lastAnchor = ''; launch.reset(); presented = true;
+    suspendedAt = canvas.hidden || root?.hidden || document.hidden ? performance.now() : null; lastRender = 0;
+    if (next === 'orbit') orbitStarted = performance.now();
+    if (reduced || (!first && previous === next)) {
+      setVisible(next === 'pad'); applyPose(next === 'pad' ? padPose() : orbitPose());
+      transitionStatus('complete', 1); updatePreview(performance.now()); publishAnchors(performance.now(), true);
+      return Promise.resolve({ stage, cancelled: false });
+    }
+    return new Promise(resolve => {
+      const to = next === 'pad' ? padPose() : orbitPose();
+      if (first && next === 'orbit') {
+        const startPose = { p: to.p.clone().sub(to.t).multiplyScalar(1.18).add(to.t), t: to.t.clone(), up: to.up.clone() };
+        setVisible(false); applyPose(startPose);
+        dive = { kind: 'reveal', start: performance.now(), duration: 1000, from: startPose, to, resolve };
+        transitionStatus('arrive', 0, 0, 0);
+      } else {
+        dive = { kind: 'cut', start: performance.now(), duration: 1600, from, departTo: previous === 'orbit' ? markerPose() : widePadPose(),
+          arriveFrom: next === 'pad' ? widePadPose() : markerPose(), to, swapped: false, resolve };
+        transitionStatus('depart', 0, 0, 0);
+      }
+      publishAnchors(performance.now(), true);
+    });
   }
   function resize() {
     width = Math.max(1, canvas.clientWidth || innerWidth); height = Math.max(1, canvas.clientHeight || innerHeight);
     renderer.setPixelRatio(Math.max(.65, Math.min(devicePixelRatio || 1, 1.35, Math.sqrt(1150000/(width*height))) * quality));
     renderer.setSize(width,height,false); camera.aspect = width/height; camera.updateProjectionMatrix();
-    if (dive) dive.to = padPose(); else applyPose(stage === 'pad' ? padPose() : orbitPose());
-    lastAnchor = ''; publishAnchor();
+    if (dive) dive.to = stage === 'pad' ? padPose() : orbitPose(); else applyPose(stage === 'pad' ? padPose() : orbitPose());
+    lastAnchor = ''; publishAnchors(performance.now(), true);
   }
   function render(now) {
     if (disposed) return; frameId = requestAnimationFrame(render);
     if (canvas.hidden || root?.hidden || document.hidden) {
+      if (suspendedAt == null) suspendedAt = now;
       lastRender = 0;
       if (now - perfStart > 1000) {
         onPerformance?.({ fps: 0, drawCalls: 0, triangles: 0, pixelRatio: renderer.getPixelRatio(), targetFps: 0, stage: 'paused' });
@@ -178,22 +285,44 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
       }
       return;
     }
+    if (suspendedAt != null) {
+      const delay = now - suspendedAt;
+      if (dive) dive.start += delay;
+      orbitStarted += delay; suspendedAt = null;
+    }
     const active = !!dive, minFrame = active && !reduced ? 0 : 1000/30;
     if (lastRender && now-lastRender < minFrame-.5) return;
     if (active && lastRender) smoothedFrameMs = smoothedFrameMs*.94+(now-lastRender)*.06;
     lastRender = now;
     if (dive) {
-      const p = clamp((now-dive.start)/dive.duration,0,1);
-      if (p < .48) { const a=smooth(p/.48); camera.position.lerpVectors(dive.from.p,launchMarker.position.clone().multiplyScalar(1.45),a); target.lerpVectors(dive.from.t,launchMarker.position,a); camera.up.copy(dive.from.up); }
-      else { if (!pad.visible) setVisible(true); const a=smooth((p-.48)/.52); camera.position.lerpVectors(v(205,170,310),dive.to.p,a); target.lerpVectors(v(-12,40),dive.to.t,a); camera.up.set(0,1,0); }
-      camera.lookAt(target); if(p===1)dive=null;
+      const elapsed = Math.max(0, now - dive.start), progress = clamp(elapsed / dive.duration, 0, 1);
+      if (dive.kind === 'reveal') {
+        blendPose(dive.from, dive.to, smooth(progress)); transitionStatus('arrive', progress);
+      } else if (elapsed < 650) {
+        const amount = elapsed / 650;
+        blendPose(dive.from, dive.departTo, smooth(amount));
+        transitionStatus('depart', progress, smooth((elapsed - 450) / 200), Math.sin(amount * Math.PI) * 1.4);
+      } else {
+        // Swap independent coordinate systems only while the host overlay is fully black.
+        if (!dive.swapped) { setVisible(stage === 'pad'); applyPose(dive.arriveFrom); dive.swapped = true; }
+        if (elapsed < 850) transitionStatus('blackout', progress, 1, 0);
+        else {
+          const amount = clamp((elapsed - 850) / 750, 0, 1);
+          blendPose(dive.arriveFrom, dive.to, smooth(amount));
+          transitionStatus('arrive', progress, 1 - smooth((elapsed - 850) / 180), Math.sin(amount * Math.PI) * .8);
+        }
+      }
+      if (progress === 1) finishTransition();
     }
-    if (stage==='orbit' && !dive) { applyPose(orbitPose(now)); globeClouds.quaternion.copy(earth.quaternion).multiply(new T.Quaternion().setFromAxisAngle(v(0,1),Math.sin(now*.000025)*.055)); }
+    if (space.visible) {
+      updatePreview(now);
+      if (!reduced) globeClouds.quaternion.copy(earth.quaternion).multiply(new T.Quaternion().setFromAxisAngle(v(0,1),Math.sin(now*.000025)*.055));
+    }
     if (pad.visible) {
       launch.animate(now);
       environment.update({ camera });
     }
-    publishAnchor(); renderer.render(scene,camera); renderedFrames++;
+    publishAnchors(now); renderer.render(scene,camera); renderedFrames++;
     if (now-perfStart > 1000) {
       onPerformance?.({fps:renderedFrames*1000/(now-perfStart),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,pixelRatio:renderer.getPixelRatio(),targetFps:active&&!reduced?60:30,stage});
       if(active && smoothedFrameMs>(reduced?48:30) && quality>.72){quality=Math.max(.72,quality-.1);resize();smoothedFrameMs=16;}
@@ -201,8 +330,8 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
     }
   }
   function visibilityChange() {
-    if(document.hidden) hiddenAt=performance.now();
-    else if(hiddenAt!=null){const delay=performance.now()-hiddenAt;if(dive)dive.start+=delay;hiddenAt=null;lastRender=0;}
+    if(document.hidden) { hiddenAt=performance.now(); if(suspendedAt==null)suspendedAt=hiddenAt; }
+    else if(hiddenAt!=null){hiddenAt=null;lastRender=0;}
   }
   // Precompile the inexpensive visible preview; detailed launch shaders compile when selected.
   updateGeometry(Math.min(84,transitEph.maxH)); setVisible(false); resize(); renderer.compile(scene,camera);
@@ -211,8 +340,9 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
   const observer=typeof ResizeObserver!=='undefined'?new ResizeObserver(resize):null;observer?.observe(canvas);
   frameId=requestAnimationFrame(render);
   return {show,updateGeometry,
-    getGeometrySnapshot(){return {displayH,earthPos:[...rawEarth],sunDir:[...rawSun],moonDirection:moonDirection.toArray(),sunDirection:sunDirection.toArray(),moonPosition:moonCenter.toArray(),earthPosition:[0,0,0],earthRotation:earth.quaternion.toArray(),moonRotation:moon.quaternion.toArray(),stage,trajectoryModel:trajectory?.model,endpointErrorKm:trajectory?.endpointErrorKm};},
-    dispose(){if(disposed)return;disposed=true;dive=null;cancelAnimationFrame(frameId);window.removeEventListener('resize',resize);document.removeEventListener('visibilitychange',visibilityChange);observer?.disconnect();onLaunchAnchor?.({x:0,y:0,visible:false});
+    getGeometrySnapshot(){return {displayH,earthPos:[...rawEarth],sunDir:[...rawSun],moonDirection:moonDirection.toArray(),sunDirection:sunDirection.toArray(),moonPosition:moonCenter.toArray(),earthPosition:[0,0,0],earthRotation:earth.quaternion.toArray(),moonRotation:moon.quaternion.toArray(),stage,transitioning:!!dive,cameraPosition:camera.position.toArray(),launchMarkerPosition:launchMarker.position.toArray(),previewProgress:previewState?.progress,trajectoryModel:trajectory?.model,endpointErrorKm:trajectory?.endpointErrorKm};},
+    dispose(){if(disposed)return;disposed=true;finishTransition(true);cancelAnimationFrame(frameId);window.removeEventListener('resize',resize);document.removeEventListener('visibilitychange',visibilityChange);observer?.disconnect();onLaunchAnchor?.({x:0,y:0,visible:false});
+      onAnchors?.(Object.fromEntries(['earth','moon','launch','injection','midcourse','arrival','vehicle'].map(key=>[key,{x:0,y:0,visible:false}])));
       const geometries=new Set(),materials=new Set();scene.traverse(o=>{if(o.geometry)geometries.add(o.geometry);for(const m of [o.material].flat().filter(Boolean))materials.add(m);});
       geometries.forEach(g=>g.dispose());materials.forEach(m=>{for(const value of Object.values(m))if(value?.isTexture)resources.add(value);m.dispose();});resources.forEach(t=>t.dispose());renderer.dispose();}
   };
