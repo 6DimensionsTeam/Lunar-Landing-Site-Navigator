@@ -46,6 +46,11 @@ uniform float uTexHero;
 ${haze}
 uniform vec3 uFogCol;
 uniform float uTexIn, uTexOut;  // edge length of the two height maps (pixels)
+uniform sampler2D uZones;    // landing-zone classes, RGBA, nearest filtered (see src/zones.js)
+uniform float uZoneA;        // strength of the zone tint (0 off)
+uniform float uZoneE;        // half extent of the zone grid, km
+uniform int uZoneSel;        // class to single out, 0 for none; the rest dim to uZoneDim
+uniform float uZoneDim;      // how far the classes that are not selected fade back
 uniform float uLines;        // strength of the contour lines and the lat/lon grid (0 off)
 uniform float uTrack;        // strength of the orbital station ground track (0 off)
 uniform vec2 uTrackDir;      // track direction (unit vector in map coordinates, through the pole)
@@ -293,6 +298,30 @@ void main() {
   fogCol *= mix(1.0, mix(0.35, 1.0, sh), smoothstep(0.85, 0.35, ao));
   col *= rim;
   col = mix(col, fogCol, fog);
+
+  // Landing zones, tinted under the overlay so the contours and the graticule stay legible
+  // on top of them. The tint multiplies rather than replaces, which keeps the relief
+  // readable: a shadowed crater floor shows its shape through the blue instead of flooding.
+  // The class is read with nearest sampling, so a cell edge stays a hard line and no sixth
+  // colour is invented between two classes.
+  if (uZoneA > 0.0 && uLayer < 2 && abs(vMap.x) < uZoneE && abs(vMap.y) < uZoneE) {
+    vec2 zuv = vec2(vMap.x / (2.0 * uZoneE) + 0.5, 0.5 - vMap.y / (2.0 * uZoneE));
+    vec4 z = texture(uZones, zuv);
+    float a = z.a * uZoneA;
+    if (uZoneSel > 0) {
+      // The class index is carried in the alpha the packer wrote, so compare on the colour:
+      // each class has a distinct rgb, and the selected one keeps full strength.
+      vec3 want = uZoneSel == 1 ? vec3(0.239, 0.545, 0.769)     // shadow
+                : uZoneSel == 2 ? vec3(0.886, 0.125, 0.059)     // prime
+                : uZoneSel == 3 ? vec3(0.949, 0.957, 0.961)     // sunlit
+                : uZoneSel == 4 ? vec3(0.545, 0.592, 0.620)     // flat
+                                : vec3(0.290, 0.322, 0.341);    // rough
+      a *= distance(z.rgb, want) < 0.02 ? 1.0 : uZoneDim;
+    }
+    // Screen-door the tint with a fine dither so a flat colour does not read as a decal
+    // pasted over the terrain; the relief keeps coming through at full tint.
+    col = mix(col, col * (0.35 + 0.9 * z.rgb) + 0.10 * z.rgb, a);
+  }
 
   // Navigation overlay: LOLA contours at 100 m / 500 m,
   // polar lat/lon grid — latitude circles every 0.25° (1° heavier), meridians every 5° (15° heavier). Line widths are computed in screen pixels and are unaffected by lighting,

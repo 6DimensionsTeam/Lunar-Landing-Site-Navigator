@@ -12,6 +12,9 @@ import zonesUrl from './data/zones.bin?inline';
 import starsUrl from './data/stars.bin?inline';
 import earthDayUrl from './data/earth_day.jpg?inline';
 import earthNightUrl from './data/earth_night.jpg?inline';
+import moonGlobalUrl from './data/moon_global.jpg?inline';
+import moonPolarUrl from './data/moon_spole_relief.jpg?inline';
+import moonPolarMeta from './data/moon_spole_relief.json';
 import stationUrl from './data/station.glb?inline';
 import roverUrl from './data/rover.glb?inline';
 
@@ -76,6 +79,9 @@ export async function loadAll(onProgress = () => {}) {
     validation,
     earthDayUrl,
     earthNightUrl,
+    moonGlobalUrl,
+    moonPolarUrl,
+    moonPolarMeta,
     stationUrl,
     roverUrl,
   };

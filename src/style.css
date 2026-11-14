@@ -640,6 +640,35 @@ body {
 .params { grid-area: sites; justify-self: start; width: var(--dock-w); box-sizing: border-box; }
 .params h2::before { content: ''; width: 0.55em; height: 0.55em; background: var(--fg); }
 .credit { margin: 0.9em 0 0; padding-top: 0.7em; border-top: 1px solid rgba(242, 244, 245, 0.13); font: 500 0.78em/1.4 var(--sans); letter-spacing: 0.06em; color: var(--dim); }
+
+/* ---------- landing-zone survey (globe) ---------- */
+.legend { grid-area: sites; justify-self: start; width: var(--dock-w); box-sizing: border-box; }
+.legend h2::before { content: ''; width: 0.55em; height: 0.55em; background: var(--fg); }
+.legend-rows dt { display: flex; align-items: center; gap: 0.6em; }
+.legend-rows .swatch { display: inline-block; width: 0.9em; height: 0.9em; border: 1px solid var(--line-hi); flex: none; }
+#select .cta-stack { justify-self: center; align-self: end; gap: 0.6em; }
+/* site chip over the globe: identical to the home screen's own .site marker, so the two
+   views read as one survey rather than a 3D viewport bolted on next to a 2D one */
+#sel-sites { position: absolute; inset: 0; pointer-events: none; }
+#sel-sites .site { pointer-events: none; }
+.hover-tip {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  margin: 0;
+  min-width: 14em;
+  padding: 0.5em 0.7em 0.55em;
+  background: rgba(0, 0, 0, 0.72);
+  border-left: 3px solid var(--red);
+  pointer-events: none;
+  will-change: transform;
+}
+.hover-tip b { display: block; margin: 0 0 0.4em; font: 700 0.95em/1 var(--sans); letter-spacing: 0.1em; color: var(--fg); }
+.hover-tip .rows { display: flex; gap: 1.1em; margin: 0; }
+.hover-tip .rows > span { display: flex; flex-direction: column; gap: 0.2em; }
+.hover-tip dt { font: 600 0.72em/1 var(--sans); letter-spacing: 0.12em; color: var(--dim); }
+.hover-tip dd { margin: 0; font: 600 0.95em/1 var(--sans); color: var(--fg2); }
 #orbit .live h2 i { min-width: 2em; }
 .back {
   display: flex;
