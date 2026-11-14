@@ -840,10 +840,39 @@ async function boot() {
     let labelH = 0;        // measured height of one site label, for the collision pass
 
     globe.resize(window.innerWidth, window.innerHeight);
+    // Graduations for the left-edge tape. Fixed at even spacing down from the frame centre and
+    // labelled with the ground distance each position actually corresponds to, rather than
+    // placed at fixed distances: on a globe the frame covers a few hundred km up close and a
+    // few thousand km from far out, so marks at fixed distances would bunch against the centre
+    // at one zoom and run off the edge at the other. This way the scale is honest at any zoom
+    // and evenly readable, which is what a graduated rule is for.
+    const tape = document.getElementById('sel-tape');
+    const tapeEls = [...tape.children];
+    // The tape is a radial scale down the left edge, with the pole at the frame centre, so the
+    // same distance reads the same above and below it. Marks sit at fixed screen offsets and
+    // each is labelled with the ground distance that offset corresponds to -- placing marks at
+    // fixed distances instead would bunch them against the centre at close zoom and push them
+    // off the edge at far zoom, since the frame covers a few hundred km up close and a few
+    // thousand km from far out.
+    const tapeKm = () => {
+      const fov = (globe.camera.fov * Math.PI) / 360;
+      const d = globe.distance;
+      const halfKm = Math.max(1e-3, (d - 1) * Math.tan(fov)) * data.radiusKm;
+      tapeEls.forEach((el, i) => {
+        const off = i + 1;                       // 1..n, marks either side of the centre
+        const side = el.dataset.side === 'down' ? 1 : -1;
+        const frac = off * 0.11;                 // fraction of the half-frame this mark sits at
+        el.hidden = frac > 0.95;
+        el.style.top = `${50 + side * frac * 50}%`;
+        const km = frac * halfKm;
+        el.dataset.km = km >= 100 ? `${Math.round(km / 10) * 10}` : `${Math.round(km)}`;
+      });
+    };
     window.addEventListener('resize', () => {
       globe.resize(window.innerWidth, window.innerHeight);
       tipKey = '';       // force one re-measure of the hover box against the new root font size
       labelH = 0;
+      tapeKm();
     });
 
     // Site markers: the same .site chip the home screen uses (white-edged red square, name
@@ -1015,6 +1044,7 @@ async function boot() {
 
       const w = window.innerWidth, h = window.innerHeight;
       layoutMarks(w, h);
+      tapeKm();               // the scale changes with the camera, so it is read per frame
 
       if (hoverPt) {
         const hit = globe.surfaceAt(hoverPt.x, hoverPt.y, w, h);

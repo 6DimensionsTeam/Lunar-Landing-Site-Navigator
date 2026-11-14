@@ -63,16 +63,6 @@ void main() {
   float lon = vUv.x * 360.0;
   float albedo = texture(uMap, vec2(fract(vUv.x + 0.5), vUv.y)).r;
 
-  // The mosaic and the polar basemap had the same average brightness but not remotely the
-  // same local contrast -- the mosaic's standard deviation over the band the basemap
-  // replaces was 56/255 against the basemap's 17 -- so the cap read as a flat grey disc laid
-  // on a mottled surface and the seam showed wherever the two met. Matching the mean was not
-  // enough; the character had to match too. The mosaic is pulled towards its own mean here
-  // and the basemap was given more contrast at the source, so the two meet in the middle.
-  // The harsh end of that contrast is grazing-illumination shadow in the source imagery, not
-  // terrain this map needs, so compressing it costs nothing a site selector would use.
-  albedo = mix(uMapMean, albedo, uMapFlat);
-
   // Near the pole every longitude converges on one texel row of that same equirectangular
   // map, so a camera close enough to read the zone cap sees that row smeared across the
   // frame. uPolar has no pole singularity (it is in the same projection as the zone cap,
@@ -83,6 +73,13 @@ void main() {
     vec2 puv = vec2(pm.x / (2.0 * uPolarE) + 0.5, 0.5 - pm.y / (2.0 * uPolarE));
     float relief = texture(uPolar, puv).r;
     float toEquirect = smoothstep(uPolarE * 0.72, uPolarE, rho);
+    // The two textures have the same mean but very different local contrast -- over this band
+    // the mosaic's standard deviation is about 56/255 against the cap's 31 -- so where they
+    // cross-fade the seam shows as a change of character even when the brightness matches.
+    // The mosaic is pulled toward its own mean only inside the blend zone, never outside it:
+    // compressing the whole body flattens the Moon everywhere for the sake of one edge.
+    float near = 1.0 - smoothstep(uPolarE * 0.55, uPolarE * 1.15, rho);
+    albedo = mix(albedo, mix(uMapMean, albedo, uMapFlat), near);
     albedo = mix(relief, albedo, toEquirect);
   }
 
@@ -104,18 +101,15 @@ void main() {
     vec2 m = pm;
     if (abs(m.x) < uZoneE && abs(m.y) < uZoneE) {
       vec2 zuv = vec2(m.x / (2.0 * uZoneE) + 0.5, 0.5 - m.y / (2.0 * uZoneE));
-      vec2 texel = vec2(1.0) / vec2(textureSize(uZones, 0));
       vec4 z = texture(uZones, zuv);
       float a = z.a * uZoneA;
-      bool dimmed = false;
       if (uZoneSel > 0) {
         vec3 want = uZoneSel == 1 ? vec3(0.239, 0.545, 0.769)
                   : uZoneSel == 2 ? vec3(0.886, 0.125, 0.059)
                   : uZoneSel == 3 ? vec3(0.949, 0.957, 0.961)
                   : uZoneSel == 4 ? vec3(0.545, 0.592, 0.620)
                                   : vec3(0.290, 0.322, 0.341);
-        dimmed = distance(z.rgb, want) >= 0.02;
-        a *= dimmed ? uZoneDim : 1.0;
+        a *= distance(z.rgb, want) < 0.02 ? 1.0 : uZoneDim;
       }
       // Fade the overlay out over the last 8 km so the cap has no cut edge
       float edgeFade = 1.0 - smoothstep(uZoneE - 8.0, uZoneE, max(abs(m.x), abs(m.y)));

@@ -149,7 +149,8 @@ body {
 }
 .topbar p { margin: 0; }
 /* hairline across the middle, a short vertical tick at each end */
-#home .topbar::after {
+#home .topbar::after,
+#select .topbar::after {
   content: '';
   order: 1;
   flex: 1;
@@ -667,6 +668,48 @@ body {
 #sel-sites .site .lead { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; visibility: hidden; }
 #sel-sites .site.lead-on .lead { visibility: visible; }
 #sel-sites .site .lead polyline { fill: none; stroke: var(--line-hi); stroke-width: 1; }
+/* Coordinate tape on the left edge of the map: a graduated scale in the map's own units,
+   positioned by the script at the distance each mark actually represents, so the cap reads
+   as a measured surface rather than an unlabelled picture. */
+.tape {
+  position: absolute;
+  left: 34px;
+  top: 0;
+  bottom: 0;
+  width: 76px;
+  pointer-events: none;
+}
+.tape i {
+  position: absolute;
+  left: 0;
+  width: 9px;
+  height: 1px;
+  background: rgba(242, 244, 245, 0.45);
+}
+.tape i:nth-child(even) { width: 5px; }
+.tape i::after {
+  content: attr(data-km);
+  position: absolute;
+  left: 13px;
+  top: -0.6em;
+  font: 600 0.72em/1 var(--sans);
+  letter-spacing: 0.1em;
+  color: var(--fg2);
+  text-shadow: 0 0 5px #000;
+  white-space: nowrap;
+}
+/* unit caption, above the graduations rather than across them */
+.tape::after {
+  content: 'km FROM POLE';
+  position: absolute;
+  left: 0;
+  top: 0;
+  font: 600 0.66em/1 var(--sans);
+  letter-spacing: 0.14em;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
 .hover-tip {
   position: absolute;
   left: 0;

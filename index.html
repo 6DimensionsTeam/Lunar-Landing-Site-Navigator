@@ -264,6 +264,7 @@
            coloured by terrain type with hover tips, preset candidate points,
            comparison panel. Reads zoneAt() from P0 and rankSites() from P3. -->
       <section id="select" hidden aria-label="Landing site selection">
+        <div class="grid" aria-hidden="true"></div>
         <header class="topbar">
           <button id="sel-back" class="back" type="button">Back <kbd>ESC</kbd></button>
           <p class="loc"><b>South Pole</b> <span>LANDING ZONE SURVEY</span></p>
@@ -278,6 +279,14 @@
         </div>
 
         <div class="sites-mk" id="sel-sites"></div>
+
+        <!-- Coordinate tape: the same ruler motif the frame uses, graduated with the
+             stereographic distance the map is drawn in, so the cap has a scale on it
+             rather than only a legend. Labelled by the script once the map is live. -->
+        <div class="tape" id="sel-tape" aria-hidden="true">
+          <i data-side="down"></i><i data-side="up"></i><i data-side="down"></i><i data-side="up"></i>
+          <i data-side="down"></i><i data-side="up"></i><i data-side="down"></i><i data-side="up"></i>
+        </div>
 
         <!-- Hover readout. A div wrapping a dl, not a p: dt and dd are not allowed inside a
              p, and the parser closes the p at the first dt, which leaves the rows outside the
