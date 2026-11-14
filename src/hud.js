@@ -438,5 +438,13 @@ export function createHud({ bootSteps }) {
     veil: (on) => veilEl.classList.toggle('on', on),
     onEnter: (fn) => $('#enter').addEventListener('click', fn),
     onBack: (fn) => $('#back').addEventListener('click', fn),
+
+    // Screens under construction, one per work package. Each package shows and hides
+    // its own screen through these and leaves the others alone. They use the same
+    // reveal/conceal transitions as the finished screens, so a new screen animates in
+    // the same way without its owner having to touch the shared machinery above.
+    screen: (id) => $(`#${id}`),
+    showScreen: (id) => reveal($(`#${id}`)),
+    hideScreen: (id) => conceal($(`#${id}`)),
   };
 }

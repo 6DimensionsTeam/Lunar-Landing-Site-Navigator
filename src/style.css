@@ -64,10 +64,16 @@ body {
   white-space: nowrap;
 }
 
+/* Screens fill the viewport and stack on top of each other; only one is shown at a time.
+   #mission, #select and #analysis are the shells for work in progress, listed here so a
+   new screen has a full-size box to lay out in from the start. */
 #home,
 #explore,
 #orbit,
-#rover { position: absolute; inset: 0; }
+#rover,
+#mission,
+#select,
+#analysis { position: absolute; inset: 0; }
 #rover:focus { outline: none; }
 
 #scene {

@@ -243,6 +243,38 @@
         </div>
       </section>
 
+      <!-- ===================================================================
+           Shells for work in progress. One block per work package, so three
+           people can build in parallel without touching the same lines.
+           Fill in only the block marked with your package. Leave the others
+           alone, including their comments. If you need a change outside your
+           block, say so first rather than editing it.
+           =================================================================== -->
+
+      <!-- P2, mission framing. Arrival date, launch site configuration, launch
+           and transfer animation. Hands over by calling onMissionReady(cfg).
+           Screen ids reserved for this package: mission-date, mission-space,
+           mission-site, mission-launch. -->
+      <section id="mission" hidden aria-label="Mission setup">
+        <!-- P2 builds here -->
+      </section>
+
+      <!-- P1, moon-surface site selection. Rotatable globe, landing zones
+           coloured by terrain type with hover tips, preset candidate points,
+           comparison panel. Reads zoneAt() from P0 and rankSites() from P3.
+           Screen ids reserved for this package: select-globe, select-compare. -->
+      <section id="select" hidden aria-label="Landing site selection">
+        <!-- P1 builds here -->
+      </section>
+
+      <!-- P3, criteria and AI analysis. Scoring panel and the one-click
+           analysis button. The analysis text must render with no network, so
+           keep the offline path the default.
+           Screen ids reserved for this package: analysis-panel, analysis-ai. -->
+      <section id="analysis" hidden aria-label="Site analysis">
+        <!-- P3 builds here -->
+      </section>
+
       <div id="veil" aria-hidden="true"></div>
     </div>
 

@@ -670,6 +670,40 @@ async function boot() {
   await B.finish();
   hud.showHome();
 
+  // ---- Mount points for work in progress ----
+  // One block per work package. Each package imports its own module and wires it up
+  // inside its own block, so three people can add code here without landing on the
+  // same lines. Everything a package is likely to need is already in scope: eph, data,
+  // sites, rig, camera, scene, renderer, hud, go, nowH, setTime, groundAt, heightAt.
+  //
+  // Keep each block to wiring. Put the work itself in the package's own file, which
+  // nobody else touches:
+  //   P0  src/zones.js      zone data and zoneAt(lat, lon)
+  //   P1  src/scene/globe.js   rotatable globe, zone colouring, candidate points
+  //   P2  src/mission.js    arrival date, launch configuration, launch animation
+  //   P3  src/analyze.js    site scoring;  src/ai.js  analysis text
+  //
+  // The mission configuration object that P2 produces and P3 consumes is fixed:
+  //   { arriveH, launchH, stayH, needs: { craterFloor, iceNearby, continuousComm, maxDarkH } }
+  // arriveH and launchH are hours from the start of the ephemeris range, so bound any
+  // date control with eph.startYear / eph.endYear and clamp against eph.maxH, never
+  // eph.count (a sample index, which only equals hours when the step is 1 h).
+
+  // P2, mission framing. Shows #mission, hands over through onMissionReady.
+  {
+    // P2 wires up here
+  }
+
+  // P1, moon-surface site selection. Shows #select.
+  {
+    // P1 wires up here
+  }
+
+  // P3, criteria and AI analysis. Shows #analysis.
+  {
+    // P3 wires up here
+  }
+
   // Debug entry point
   const setTime = (h, rate = 0) => { clock.epochH = h; clock.t0 = performance.now(); clock.rate = rate; lastLit = null; };
   window.__lln = { THREE, camera, controls, terrain, shadows, sky, bodies, post, eph, data, renderer, rig, sites, crater, station, rover, clock, setTime, groundAt, heightAt, go, enterRover, leaveRover, keys, get mode() { return mode; } };
