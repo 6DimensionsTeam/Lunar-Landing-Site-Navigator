@@ -756,8 +756,9 @@ async function boot() {
       });
       hud.hideHome();
       hud.showScreen('mission');
-      // Reuse the rendered terrain as the arrival form's poster instead of redrawing
-      // six million terrain triangles behind an otherwise static form.
+      // Cache terrain only while P2's visible arrival form uses the home view as
+      // a poster. P2's stage can stay stale after another screen conceals it;
+      // it must never stop the host's camera flights or interactive views.
       // The original callback schedules the next frame through this shared binding.
       const surfaceFrame = frame;
       const missionRoot = hud.screen('mission');
@@ -774,14 +775,16 @@ async function boot() {
         lastSurfaceTick = t;
         if (globeShown) return;
         const stage = missionFlow.stage;
-        const covered = stage === 'boot' || stage === 'orbit' || stage === 'pad' || stage === 'flight';
+        const missionVisible = !missionRoot.hidden && !missionRoot.classList.contains('out');
+        const covered = missionVisible && (stage === 'boot' || stage === 'orbit' || stage === 'pad' || stage === 'flight');
+        const poster = missionVisible && stage === 'intro' && mode === 'home' && !flight;
         const paused = document.hidden || covered;
         if (profile && t - sampleStart >= 1000) {
           missionRoot.dataset.surfaceFps = (surfaceFrames * 1000 / (t - sampleStart)).toFixed(1);
           surfaceFrames = 0;
           sampleStart = t;
         }
-        if (paused || (stage === 'intro' && !surfaceDirty)) {
+        if (paused || (poster && !surfaceDirty)) {
           requestAnimationFrame(frame);
           return;
         }
