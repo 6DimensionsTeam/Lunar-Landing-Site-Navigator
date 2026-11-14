@@ -745,6 +745,30 @@ async function boot() {
       });
       hud.hideHome();
       hud.showScreen('mission');
+      // Keep the terrain poster moving gently, then release the GPU to P2's scene.
+      // The original callback schedules the next frame through this shared binding.
+      const surfaceFrame = frame;
+      const missionRoot = hud.screen('mission');
+      const profile = new URLSearchParams(location.search).has('perf');
+      let nextSurfaceFrame = 0, surfaceFrames = 0, sampleStart = performance.now();
+      frame = t => {
+        const stage = missionFlow.stage;
+        const covered = stage === 'boot' || stage === 'orbit' || stage === 'pad' || stage === 'flight';
+        const paused = document.hidden || covered;
+        if (profile && t - sampleStart >= 1000) {
+          missionRoot.dataset.surfaceFps = (surfaceFrames * 1000 / (t - sampleStart)).toFixed(1);
+          surfaceFrames = 0;
+          sampleStart = t;
+        }
+        if (paused || (stage === 'intro' && t < nextSurfaceFrame)) {
+          requestAnimationFrame(frame);
+          return;
+        }
+        nextSurfaceFrame = t + 1000 / 24;
+        surfaceFrames += 1;
+        surfaceFrame(t);
+      };
+      frame.last = surfaceFrame.last;
       missionFlow.ready.catch(error => console.error('Mission setup failed', error));
     }
   }
