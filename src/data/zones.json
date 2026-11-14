@@ -46,7 +46,7 @@
  },
  "zones": {
   "unmapped": 0,
-  "ice": 1,
+  "shadow": 1,
   "prime": 2,
   "sunlit": 3,
   "flat": 4,
@@ -54,23 +54,31 @@
  },
  "thresholds": {
   "slope_flat_deg": 10.0,
-  "tmax_ice_k": 110.0,
+  "shadow_rule": "solar average visible fraction = 0",
+  "tmax_cold_k": 110.0,
   "sun_quantile": 0.9,
   "sun_cut": 0.3968,
   "earth_link": 0.5
  },
+ "shadow_also_cold_pct": 38.4,
  "share_pct": {
-  "ice": 4.03,
+  "shadow": 10.3,
   "prime": 0.85,
   "sunlit": 9.15,
-  "flat": 49.02,
-  "rough": 36.95
+  "flat": 46.46,
+  "rough": 33.24
+ },
+ "native_m": {
+  "slope_deg": 20,
+  "sun": 60,
+  "earth": 60,
+  "tmax_k": 2413
  },
  "sources": {
   "slope": "Slope_ldem_85s_20m_Spole_float_SP (LRO LOLA, 20 m)",
   "sun": "AVGVISIB_85S_060M_201608_SP (LRO LOLA, 60 m, 18.6 yr mean)",
   "earth": "AVGVISIB_85S_060M_201608_EARTH_SP (LRO LOLA, 60 m, 18.6 yr mean)",
-  "tmax": "diviner_tbol_max_SP (LRO Diviner)",
+  "tmax": "diviner_tbol_max_SP (LRO Diviner, 2413 m, nearest-neighbour onto this grid)",
   "citation": "Mazarico, E., et al. (2011), Illumination conditions of the lunar polar regions using LOLA topography, Icarus 211, 1066-1081, doi:10.1016/j.icarus.2010.10.030"
  }
 }

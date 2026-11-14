@@ -8,6 +8,12 @@
 // come from the full-resolution horizon profiles in sites.json instead, which is why the
 // two can differ by a few percent at a site sitting on a sharp ridge.
 //
+// One caveat is worth carrying into any readout: the planes do not share a resolution.
+// Slope comes from 20 m data and the two visibility fields from 60 m, all averaged down into
+// a cell, but tmaxK comes from a field gridded in latitude and longitude at roughly 16 km, so
+// it is a regional temperature rather than this cell's. That is why the shadow class is drawn
+// from solar visibility and temperature only qualifies it; see tools/prep_zones.py.
+//
 // Built by tools/prep_zones.py from NASA LOLA and Diviner products; see zones.json for the
 // per-plane sources and the citation.
 import * as THREE from 'three';
@@ -16,11 +22,11 @@ import * as THREE from 'three';
 // it first, the two partial classes are greys of different weight, rough is nearly invisible.
 // Alpha carries how strongly a class tints the terrain underneath.
 export const ZONE_STYLE = {
-  ice:    { name: 'COLD TRAP',     rgba: [0x3d, 0x8b, 0xc4, 0.52], note: 'Maximum temperature stays below 110 K, so water ice can be stable. Too cold and too dark to land in.' },
-  prime:  { name: 'PRIME GROUND',  rgba: [0xe2, 0x20, 0x0f, 0.58], note: 'Flat, well lit and in direct view of Earth. The combination is rare.' },
-  sunlit: { name: 'SUNLIT',        rgba: [0xf2, 0xf4, 0xf5, 0.30], note: 'Well lit, but either too steep to land on or without a direct Earth link.' },
-  flat:   { name: 'FLAT GROUND',   rgba: [0x8b, 0x97, 0x9e, 0.18], note: 'Landable slope, but poorly lit, so surface power is limited.' },
-  rough:  { name: 'ROUGH',         rgba: [0x4a, 0x52, 0x57, 0.10], note: 'Too steep to land on and poorly lit.' },
+  shadow: { name: 'PERMANENT SHADOW', rgba: [0x3d, 0x8b, 0xc4, 0.52], note: 'Never sees the Sun. Water ice can be stable where it is also cold enough, which is about two fifths of this ground.' },
+  prime:  { name: 'PRIME GROUND',     rgba: [0xe2, 0x20, 0x0f, 0.58], note: 'Flat, well lit and in direct view of Earth. The combination is rare.' },
+  sunlit: { name: 'SUNLIT',           rgba: [0xf2, 0xf4, 0xf5, 0.30], note: 'Well lit, but either too steep to land on or without a direct Earth link.' },
+  flat:   { name: 'FLAT GROUND',      rgba: [0x8b, 0x97, 0x9e, 0.18], note: 'Landable slope, but poorly lit, so surface power is limited.' },
+  rough:  { name: 'ROUGH',            rgba: [0x4a, 0x52, 0x57, 0.10], note: 'Too steep to land on and poorly lit.' },
 };
 
 export function createZones(bytes, meta) {
@@ -82,9 +88,12 @@ export function createZones(bytes, meta) {
       earth: decode('earth', planes.earth[i]),
       tmaxK: decode('tmax_k', planes.tmax_k[i]),
       iceDistKm: decode('ice_dist_m', planes.ice_dist_m[i]) / 1000,
-      // What the three terrain questions reduce to, so a caller does not re-derive them
+      // What the three terrain questions reduce to, so a caller does not re-derive them.
+      // iceLikely needs both tests: ground can be permanently dark and still be warmed
+      // above the ice-stability point by what a nearby sunlit wall radiates at it.
       flat: key === 'flat' || key === 'prime',
-      iceStable: key === 'ice',
+      inShadow: key === 'shadow',
+      iceLikely: key === 'shadow' && decode('tmax_k', planes.tmax_k[i]) < meta.thresholds.tmax_cold_k,
       wellLit: key === 'sunlit' || key === 'prime',
     };
   }

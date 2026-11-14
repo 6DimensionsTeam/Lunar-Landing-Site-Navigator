@@ -49,14 +49,14 @@ CELL_M = 2 * HALF_M / N
 # 18.6-year average disc fraction has no natural threshold and its range depends on the
 # extent requested.
 SLOPE_FLAT_DEG = 10.0
-TMAX_ICE_K = 110.0
+TMAX_COLD_K = 110.0          # ice is stable below about this, the Diviner cold-trap criterion
 SUN_QUANTILE = 0.90
 EARTH_LINK = 0.50
 
 # Mutually exclusive, so a cell has exactly one colour and the legend is unambiguous
 ZONE = {
     "unmapped": 0,
-    "ice": 1,       # cold trap: ice may be stable, too cold and too dark to land in
+    "shadow": 1,    # never sees the Sun; ice may be stable in the colder parts
     "prime": 2,     # flat, sunlit and in view of Earth
     "sunlit": 3,    # sunlit but too steep or without a direct Earth link
     "flat": 4,      # landable but poorly lit
@@ -112,20 +112,32 @@ def main():
     sun_cut = float(np.quantile(sun[inside], SUN_QUANTILE))
 
     flat = slope < SLOPE_FLAT_DEG
-    cold = tmax < TMAX_ICE_K
     sunny = sun > sun_cut
     link = earth > EARTH_LINK
+
+    # Permanent shadow comes from the 60 m solar visibility product, not from Diviner.
+    # Diviner maximum temperature is the physically correct test for whether ice is stable,
+    # but its source is gridded in latitude and longitude at about 0.54 deg, which is some
+    # 16 km on the ground: every one of its common values covers exactly 175 cells of this
+    # grid spanning exactly that latitude band. The ImageServer advertises 2413 m, which is
+    # only the pixel size of NASA's own resampling of it. At 16 km a cold-trap outline cannot
+    # follow a crater floor at all, so drawing one would be a picture of the gridding rather
+    # than of the Moon. Solar visibility resolves the same regions properly: it yields 1885
+    # shadow regions against Diviner's 15, its edges sit on steeper ground than its interiors
+    # as a crater wall around a floor should, and it still contains Shoemaker, Faustini and
+    # Haworth. Temperature is carried per cell as a readout, with its own resolution recorded.
+    shadow = (sun <= 0.0) & inside
 
     cls = np.full((N, N), ZONE["unmapped"], dtype=np.uint8)
     cls[inside & ~flat & ~sunny] = ZONE["rough"]
     cls[inside & flat] = ZONE["flat"]
     cls[inside & sunny] = ZONE["sunlit"]
     cls[inside & flat & sunny & link] = ZONE["prime"]
-    cls[inside & cold] = ZONE["ice"]          # last, so a cold trap is never relabelled
+    cls[shadow] = ZONE["shadow"]              # last, so shadow is never relabelled
 
-    # Distance to the nearest cold trap, which is what "near ice" has to mean for a site
-    # that cannot itself be inside one
-    dist_m = ndimage.distance_transform_edt(~(cold & inside)) * CELL_M
+    # Distance to the nearest permanently shadowed ground, which is what "near ice" has to
+    # mean for a site that cannot itself sit in the dark
+    dist_m = ndimage.distance_transform_edt(~shadow) * CELL_M
 
     source = {"slope_deg": slope, "sun": sun, "earth": earth, "tmax_k": tmax, "ice_dist_m": dist_m}
     quantised = {k: quantise(source[k], lo, hi, lv) for k, (lo, hi, lv, _) in FIELDS.items()}
@@ -151,17 +163,26 @@ def main():
         "zones": ZONE,
         "thresholds": {
             "slope_flat_deg": SLOPE_FLAT_DEG,
-            "tmax_ice_k": TMAX_ICE_K,
+            "shadow_rule": "solar average visible fraction = 0",
+            "tmax_cold_k": TMAX_COLD_K,
             "sun_quantile": SUN_QUANTILE,
             "sun_cut": round(sun_cut, 4),
             "earth_link": EARTH_LINK,
         },
+        # Share of the permanently shadowed area that is also cold enough for ice to be
+        # stable, by the coarse temperature field. Shadow alone is not enough: a small dark
+        # patch beside a sunlit wall is warmed by what that wall radiates.
+        "shadow_also_cold_pct": round(float((tmax[shadow] < TMAX_COLD_K).mean() * 100), 1),
         "share_pct": {k: round(counts[k] / n_in * 100, 2) for k in ZONE if k != "unmapped"},
+        # Native resolution per source, because it is not uniform and the ice class is the
+        # one place it matters: Diviner is coarser than a cell, so a cold-trap outline is
+        # only good to about 2.4 km and the interface should not draw it as a crisp edge.
+        "native_m": {"slope_deg": 20, "sun": 60, "earth": 60, "tmax_k": 2413},
         "sources": {
             "slope": "Slope_ldem_85s_20m_Spole_float_SP (LRO LOLA, 20 m)",
             "sun": "AVGVISIB_85S_060M_201608_SP (LRO LOLA, 60 m, 18.6 yr mean)",
             "earth": "AVGVISIB_85S_060M_201608_EARTH_SP (LRO LOLA, 60 m, 18.6 yr mean)",
-            "tmax": "diviner_tbol_max_SP (LRO Diviner)",
+            "tmax": "diviner_tbol_max_SP (LRO Diviner, 2413 m, nearest-neighbour onto this grid)",
             "citation": ("Mazarico, E., et al. (2011), Illumination conditions of the lunar polar "
                          "regions using LOLA topography, Icarus 211, 1066-1081, "
                          "doi:10.1016/j.icarus.2010.10.030"),

@@ -37,24 +37,34 @@ WKT = (
 )
 
 BASE = "https://trek.nasa.gov/moon/trekarcgis2/rest/services"
+
+# name: (service, native metres per pixel)
+# The grid cell is 480 m, so three of these are downsampled and one is upsampled, and the
+# interpolation has to follow: averaging is the right answer when several source pixels fall
+# in a cell, and nearest is the right answer when one source pixel covers several cells.
+# Asking for bilinear on the Diviner layer produced 270561 distinct values inside the disc
+# where the source holds about 5600, and thresholding that invented crater outlines at a
+# resolution the measurement does not have.
 LAYERS = {
-    "slope20": "Slope_ldem_85s_20m_Spole_float_SP",
-    "sunvis": "AVGVISIB_85S_060M_201608_SP",
-    "earthvis": "AVGVISIB_85S_060M_201608_EARTH_SP",
-    "tmax": "diviner_tbol_max_SP",
+    "slope20": ("Slope_ldem_85s_20m_Spole_float_SP", 20),
+    "sunvis": ("AVGVISIB_85S_060M_201608_SP", 60),
+    "earthvis": ("AVGVISIB_85S_060M_201608_EARTH_SP", 60),
+    "tmax": ("diviner_tbol_max_SP", 2413),
 }
+CELL_M = 2 * HALF_M / N
 
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     sr = json.dumps({"wkt": WKT})
-    for name, service in LAYERS.items():
+    for name, (service, native_m) in LAYERS.items():
+        interp = "RSP_BilinearInterpolation" if native_m <= CELL_M else "RSP_NearestNeighbor"
         q = urllib.parse.urlencode({
             "bbox": f"{-HALF_M},{-HALF_M},{HALF_M},{HALF_M}",
             "bboxSR": sr, "imageSR": sr,
             "size": f"{N},{N}",
             "format": "tiff", "pixelType": "F32", "f": "image",
-            "interpolation": "RSP_BilinearInterpolation",
+            "interpolation": interp,
         })
         url = f"{BASE}/{service}/ImageServer/exportImage?{q}"
         dest = OUT / f"{name}.tif"
@@ -65,8 +75,9 @@ def main():
         )
         code, size = (r.stdout.split() + ["?", "?"])[:2]
         ok = code == "200" and int(size) > 1_000_000
-        print(f"{name:10} {service:42} {code} {int(size)/1e6:5.2f} MB "
-              f"{time.time()-t0:5.1f}s {'' if ok else '  <-- FAILED'}")
+        how = "mean" if native_m <= CELL_M else "nearest"
+        print(f"{name:10} {service:42} {native_m:5d} m {how:7} {code} "
+              f"{int(size)/1e6:5.2f} MB {time.time()-t0:5.1f}s {'' if ok else '  <-- FAILED'}")
 
 
 if __name__ == "__main__":
