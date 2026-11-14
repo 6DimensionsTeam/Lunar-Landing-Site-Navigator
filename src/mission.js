@@ -1,3 +1,5 @@
+import { createLaunchFilm } from './launch-film.js';
+
 // P2 owns this module and its #mission mount only. P1 keeps its scene and shaders.
 // All persistent mission times are hours from the injected ephemeris epoch.
 export const dateToHours = (date, eph) => (date.getTime() - eph.start) / 3600e3;
@@ -71,17 +73,20 @@ const styles = `
 @media(max-width:900px){#mission .p2-intro-content{left:var(--p2-pad);width:390px}#mission .p2-system>span{display:none}#mission .p2-orbit-bottom{display:grid;grid-template-columns:1fr;gap:14px;bottom:105px}#mission .p2-orbit-note{max-width:none;margin:0;font-size:11px}#mission .p2-plan{width:min(430px,100%)}#mission [data-view=pad]{overflow-y:auto;padding:230px var(--p2-pad) 110px}#mission .p2-config{position:relative;left:auto;top:auto;width:310px;max-height:none;overflow:visible}#mission .p2-launch-side{position:relative;right:auto;bottom:auto;width:310px;margin-top:20px}#mission .p2-rocket-label{left:auto;right:var(--p2-pad);top:26%;max-width:35%}#mission[data-stage=pad] .p2-header:before{content:'';position:fixed;inset:0 0 auto;height:90px;background:linear-gradient(#000,#000 75%,transparent);z-index:-1}}
 @media(max-width:580px){#mission{--p2-pad:23px}#mission .p2-header{top:25px;justify-content:space-between;gap:14px}#mission .p2-brand b{font-size:13px}#mission .p2-brand small{font-size:7px;letter-spacing:.13em}#mission .p2-header-line{display:none}#mission .p2-system{gap:7px;font-size:9px}#mission .p2-system:before{display:none}#mission .p2-system b{padding:4px 6px}#mission .p2-intro-content{top:21%;width:calc(100% - 46px)}#mission .p2-intro-content h1{font-size:clamp(33px,9.4vw,44px)}#mission .p2-eyebrow{font-size:9px;gap:9px}#mission .p2-subtitle{font-size:8px;letter-spacing:.18em;margin:17px 0 27px}#mission .p2-arrival{font-size:32px}#mission .p2-date-label small{font-size:8px}#mission .p2-cta b{font-size:19px}#mission .p2-cta span{font-size:9px}#mission .p2-window{font-size:10px}#mission .p2-terrain-tag{right:var(--p2-pad);bottom:115px;padding-left:15px}#mission .p2-terrain-tag b{font-size:9px}#mission .p2-terrain-tag span{font-size:7px}#mission .p2-heading{top:103px}#mission .p2-heading h1{font-size:29px;max-width:320px}#mission .p2-heading .p2-subtitle{font-size:8px}#mission .p2-orbit-bottom{bottom:110px}#mission .p2-orbit-note{font-size:10px}#mission .p2-plan{gap:10px;padding:13px 0}#mission .p2-plan b{font-size:21px}#mission .p2-plan small{font-size:8px}#mission .p2-plan em{font-size:20px}#mission .p2-scale-note{font-size:8px;max-width:calc(100% - 46px);line-height:1.5;bottom:73px}#mission .p2-launch-marker{min-width:160px;padding:10px 13px}#mission .p2-launch-marker b{font-size:11px}#mission .p2-launch-marker span{font-size:9px}#mission [data-view=pad]{padding-top:470px}#mission .p2-config,#mission .p2-launch-side{width:100%}#mission .p2-pad-heading{top:103px}#mission .p2-rocket-label{position:absolute;top:300px;right:var(--p2-pad);max-width:42%;border:none}#mission .p2-rocket-label b{font-size:12px}#mission .p2-rocket-label small{font-size:7px}#mission .p2-footer{bottom:24px;gap:8px;font-size:8px}#mission .p2-steps{gap:7px}#mission .p2-steps>i{width:7px}#mission .p2-steps>span{gap:4px}#mission .p2-flight-heading{top:155px}#mission .p2-flight-heading h1{font-size:24px;max-width:310px}#mission .p2-flight-clock{width:calc(100% - 46px);bottom:125px}#mission .p2-flight-clock time{font-size:26px}#mission .p2-skip{top:105px;font-size:11px;padding:8px 12px}#mission .p2-boot-head{font-size:10px;gap:8px}#mission .p2-boot-head span{font-size:8px}#mission .p2-boot-log{font-size:11px;min-height:250px}#mission .p2-boot-log li{gap:7px;margin:9px 0}#mission .p2-boot-log time{font-size:9px;min-width:34px}#mission .p2-boot-log small{font-size:8px}#mission .p2-boot-foot{font-size:7px}}
 @media(max-width:900px){#mission[data-stage=pad] .p2-footer{left:0;right:0;bottom:0;padding:18px var(--p2-pad);background:#030609ed;border-top:1px solid #ffffff18}}
+#mission .p2-film{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;pointer-events:none}#mission[data-stage=flight]{background:#000}#mission[data-stage=flight] .p2-grid{opacity:.10}#mission[data-stage=flight] .p2-shade{background:linear-gradient(0deg,#0009,transparent 35%,transparent 70%,#0008)}#mission .p2-footage-credit{position:absolute;right:var(--p2-pad);bottom:82px;max-width:360px;padding:8px 12px;background:#0009;color:#ccd6df;font-size:10px;letter-spacing:.08em;line-height:1.7;text-align:right}#mission .p2-footage-credit a{color:#fff;text-decoration:none;border-bottom:1px solid #fff6}#mission .p2-film-error{position:absolute;left:var(--p2-pad);bottom:235px;max-width:420px;padding:14px;background:#000d;border:1px solid #e2200f;font-size:14px}#mission .p2-film-error button{display:block;margin-top:10px;border:1px solid #fff8;padding:8px 14px;background:#111}
+@media(max-width:580px){#mission .p2-footage-credit{bottom:73px;font-size:8px;padding:5px 8px}#mission .p2-flight-clock{bottom:150px}#mission .p2-flight-clock time{font-size:24px}}
 @media(prefers-reduced-motion:reduce){#mission *,#mission *:before,#mission *:after{animation:none!important;transition:none!important}}
 `;
 
 const markup = `
+<video class="p2-film" data-ui="film" aria-label="NASA Artemis II launch footage" muted playsinline preload="none" hidden></video>
 <canvas class="p2-canvas" data-ui="transit" aria-label="Independent Earth–Moon transit visualization" hidden></canvas>
 <div class="p2-shade" aria-hidden="true"></div><div class="p2-grid" aria-hidden="true"></div><div class="p2-frame" aria-hidden="true"></div>
 <header class="p2-header"><button class="p2-brand" data-ui="restart" aria-label="Restart mission planning"><b>LUNAR LANDING</b><small>SITE NAVIGATOR · DEPARTURE</small></button><div class="p2-header-line"></div><div class="p2-system"><span>PRE-FLIGHT SYSTEMS</span><b>LLN–02</b></div></header>
 <section id="mission-date" class="p2-stage" data-view="intro"><div class="p2-intro-content"><p class="p2-eyebrow"><b>PROLOGUE</b><span>THE JOURNEY BEGINS</span></p><h1 tabindex="-1">When do you want<br>to reach the Moon?</h1><p class="p2-subtitle">EVERY MISSION STARTS WITH A MOMENT.</p><form data-ui="arrival-form" novalidate><div class="p2-date-box"><label class="p2-date-label" for="p2-arrival-date">Arrival date <small>UTC · MISSION TIME</small></label><input class="p2-arrival" id="p2-arrival-date" data-ui="arrival-date" type="date" required><div class="p2-time-row"><button class="p2-link" data-ui="toggle-time" type="button" aria-expanded="false" aria-controls="p2-arrival-time-wrap">＋ Add a time <small>OPTIONAL</small></button><div class="p2-time-wrap" id="p2-arrival-time-wrap" data-ui="time-wrap" hidden><input data-ui="arrival-time" type="time" value="12:00" aria-label="Arrival time in UTC"><span>UTC</span></div></div></div><p class="p2-error" data-ui="arrival-error" role="alert"></p><button class="p2-cta" data-ui="plan" type="submit" disabled><b>Plan my journey</b><span>PREVIEW EARTH–MOON TRANSFER ↗</span></button></form><p class="p2-window"><span data-ui="window-label"></span><i></i><span>All times in UTC</span></p></div><div class="p2-terrain-tag" aria-hidden="true"><b>SHACKLETON · SOUTH POLE</b><span>LRO / LOLA · MEASURED TERRAIN</span></div></section>
-<section id="mission-space" class="p2-stage" data-view="orbit" hidden><div class="p2-heading"><button class="p2-back" data-ui="edit-date">← Edit arrival date</button><p class="p2-eyebrow"><b>02</b><span>EARTH–MOON SYSTEM</span></p><h1 tabindex="-1">A journey starts<br>with a departure.</h1><p class="p2-subtitle">ARRIVAL GEOMETRY · JPL DE421</p></div><button class="p2-launch-marker" data-ui="launch-marker" hidden><b>EARTH / LAUNCH SITE 01</b><span>Configure your mission ↗</span></button><div class="p2-orbit-bottom"><p class="p2-orbit-note">Select the marked launch site on Earth<br>to prepare your mission.</p><div class="p2-plan"><div><small>PLANNED DEPARTURE</small><b data-ui="orbit-launch"></b></div><em>→</em><div><small>PLANNED ARRIVAL</small><b data-ui="orbit-arrival"></b></div></div></div><p class="p2-scale-note" data-ui="transfer-note">Two-body transfer estimate · 200 km parking orbit · DE421 arrival target · Bodies enlarged</p><details class="p2-model-details"><summary>Model assumptions</summary><p>The transfer is computed under Earth gravity from an assumed 200 km parking orbit to the DE421 lunar position. It excludes lunar and solar gravity, powered ascent, vehicle limits and lunar capture. The launch montage is informed by NASA ascent references and compresses time for presentation. NASA Earth Observatory textures are historical composites; cloud placement is illustrative, not a weather forecast.</p></details></section>
-<section id="mission-site" class="p2-stage" data-view="pad" hidden><div class="p2-heading p2-pad-heading"><button class="p2-back" data-ui="back-orbit">← Back to the Earth–Moon view</button><p class="p2-eyebrow"><b>03</b><span>LAUNCH COMPLEX 01</span></p><h1 tabindex="-1">Prepare for departure.</h1><p class="p2-subtitle">LUNAR HEAVY LIFT · FLIGHT READINESS</p></div><div class="p2-config p2-panel"><div class="p2-panel-head"><span>Mission configuration</span><small>PRE-FLIGHT</small></div><form data-ui="config-form" novalidate><fieldset><legend><b>01</b> Stay on the Moon <span>DURATION</span></legend><div class="p2-input-row"><input data-ui="stay-days" type="number" min="0.0416666667" step="any" value="7" aria-label="Planned stay in days"><span>days</span></div><div class="p2-shortcuts" role="group" aria-label="Stay duration presets"><button type="button" data-stay="24">24 hours</button><button type="button" data-stay="72">3 days</button><button type="button" data-stay="168">7 days</button></div><p class="p2-field-note">Mission ends <b data-ui="mission-end">—</b></p></fieldset><fieldset><legend><b>02</b> Mission requirements <span>OPTIONAL</span></legend><label class="p2-check"><input data-ui="crater-floor" type="checkbox"><span>Reach a crater floor</span><small>TERRAIN</small></label><label class="p2-check"><input data-ui="ice-nearby" type="checkbox"><span>Water ice nearby</span><small>RESOURCES</small></label><label class="p2-check"><input data-ui="continuous-comm" type="checkbox"><span>Continuous Earth link</span><small>COMMS</small></label><label class="p2-dark-label" for="p2-max-dark">Longest acceptable night <small>MAXIMUM</small></label><div class="p2-input-row"><input id="p2-max-dark" data-ui="max-dark" type="number" min="0" step="any" value="72"><span>hours</span></div><p class="p2-field-note">These requirements are passed to lunar site selection after arrival.</p></fieldset><p class="p2-error" data-ui="config-error" role="alert"></p></form></div><div class="p2-rocket-label" aria-hidden="true"><b>LUNAR HEAVY LIFT</b><small>CORE + TWIN SOLID BOOSTERS</small></div><div class="p2-launch-side"><section class="p2-panel"><div class="p2-panel-head"><span>Flight plan</span><small>UTC</small></div><dl class="p2-summary"><div><dt>Earth departure</dt><dd data-ui="summary-launch"></dd></div><div><dt>Lunar arrival</dt><dd data-ui="summary-arrive"></dd></div><div><dt>Surface mission</dt><dd data-ui="summary-stay"></dd></div><div><dt>Transfer duration</dt><dd data-ui="summary-transfer"></dd></div></dl></section><button class="p2-cta" data-ui="launch" disabled><b>LAUNCH</b><span>BEGIN LUNAR TRANSFER ↑</span></button><p class="p2-launch-disclaimer">9.5-second launch sequence · Skip at any time</p></div></section>
-<section id="mission-launch" class="p2-stage" data-view="flight" hidden><div class="p2-flight-heading"><p class="p2-eyebrow"><b>IN FLIGHT</b><span data-ui="flight-phase">IGNITION & ASCENT</span></p><h1 tabindex="-1">Earth departure.</h1><p class="p2-subtitle">YOUR MISSION IS UNDERWAY.</p></div><button class="p2-skip" data-ui="skip">Skip to arrival ⏭</button><div class="p2-flight-clock"><span>MISSION CLOCK · UTC · TIME COMPRESSED</span><time data-ui="flight-date"></time><div class="p2-flight-track"><i data-ui="flight-bar"></i></div><small><span>EARTH DEPARTURE</span><span>LUNAR ARRIVAL</span></small></div></section>
+<section id="mission-space" class="p2-stage" data-view="orbit" hidden><div class="p2-heading"><button class="p2-back" data-ui="edit-date">← Edit arrival date</button><p class="p2-eyebrow"><b>02</b><span>EARTH–MOON SYSTEM</span></p><h1 tabindex="-1">A journey starts<br>with a departure.</h1><p class="p2-subtitle">ARRIVAL GEOMETRY · JPL DE421</p></div><button class="p2-launch-marker" data-ui="launch-marker" hidden><b>EARTH / LAUNCH SITE 01</b><span>Configure your mission ↗</span></button><div class="p2-orbit-bottom"><p class="p2-orbit-note">Select the marked launch site on Earth<br>to prepare your mission.</p><div class="p2-plan"><div><small>PLANNED DEPARTURE</small><b data-ui="orbit-launch"></b></div><em>→</em><div><small>PLANNED ARRIVAL</small><b data-ui="orbit-arrival"></b></div></div></div><p class="p2-scale-note" data-ui="transfer-note">Two-body transfer estimate · 200 km parking orbit · DE421 arrival target · Bodies enlarged</p><details class="p2-model-details"><summary>Model assumptions</summary><p>The transfer is computed under Earth gravity from an assumed 200 km parking orbit to the DE421 lunar position. It excludes lunar and solar gravity, powered ascent, vehicle limits and lunar capture. The launch sequence uses edited NASA Artemis II archive footage, not a simulation of your selected mission date. NASA Earth Observatory textures are historical composites; cloud placement is illustrative, not a weather forecast.</p></details></section>
+<section id="mission-site" class="p2-stage" data-view="pad" hidden><div class="p2-heading p2-pad-heading"><button class="p2-back" data-ui="back-orbit">← Back to the Earth–Moon view</button><p class="p2-eyebrow"><b>03</b><span>LAUNCH COMPLEX 01</span></p><h1 tabindex="-1">Prepare for departure.</h1><p class="p2-subtitle">LUNAR HEAVY LIFT · FLIGHT READINESS</p></div><div class="p2-config p2-panel"><div class="p2-panel-head"><span>Mission configuration</span><small>PRE-FLIGHT</small></div><form data-ui="config-form" novalidate><fieldset><legend><b>01</b> Stay on the Moon <span>DURATION</span></legend><div class="p2-input-row"><input data-ui="stay-days" type="number" min="0.0416666667" step="any" value="7" aria-label="Planned stay in days"><span>days</span></div><div class="p2-shortcuts" role="group" aria-label="Stay duration presets"><button type="button" data-stay="24">24 hours</button><button type="button" data-stay="72">3 days</button><button type="button" data-stay="168">7 days</button></div><p class="p2-field-note">Mission ends <b data-ui="mission-end">—</b></p></fieldset><fieldset><legend><b>02</b> Mission requirements <span>OPTIONAL</span></legend><label class="p2-check"><input data-ui="crater-floor" type="checkbox"><span>Reach a crater floor</span><small>TERRAIN</small></label><label class="p2-check"><input data-ui="ice-nearby" type="checkbox"><span>Water ice nearby</span><small>RESOURCES</small></label><label class="p2-check"><input data-ui="continuous-comm" type="checkbox"><span>Continuous Earth link</span><small>COMMS</small></label><label class="p2-dark-label" for="p2-max-dark">Longest acceptable night <small>MAXIMUM</small></label><div class="p2-input-row"><input id="p2-max-dark" data-ui="max-dark" type="number" min="0" step="any" value="72"><span>hours</span></div><p class="p2-field-note">These requirements are passed to lunar site selection after arrival.</p></fieldset><p class="p2-error" data-ui="config-error" role="alert"></p></form></div><div class="p2-rocket-label" aria-hidden="true"><b>LUNAR HEAVY LIFT</b><small>CORE + TWIN SOLID BOOSTERS</small></div><div class="p2-launch-side"><section class="p2-panel"><div class="p2-panel-head"><span>Flight plan</span><small>UTC</small></div><dl class="p2-summary"><div><dt>Earth departure</dt><dd data-ui="summary-launch"></dd></div><div><dt>Lunar arrival</dt><dd data-ui="summary-arrive"></dd></div><div><dt>Surface mission</dt><dd data-ui="summary-stay"></dd></div><div><dt>Transfer duration</dt><dd data-ui="summary-transfer"></dd></div></dl></section><button class="p2-cta" data-ui="launch" disabled><b>LAUNCH</b><span>BEGIN LUNAR TRANSFER ↑</span></button><p class="p2-launch-disclaimer">9.5-second NASA launch film · Skip at any time</p></div></section>
+<section id="mission-launch" class="p2-stage" data-view="flight" hidden><div class="p2-flight-heading"><p class="p2-eyebrow"><b>NASA FOOTAGE</b><span data-ui="flight-phase">ARTEMIS II · LAUNCH</span></p><h1 tabindex="-1">Earth departure.</h1><p class="p2-subtitle">YOUR MISSION IS UNDERWAY.</p></div><button class="p2-skip" data-ui="skip">Skip to arrival ⏭</button><div class="p2-flight-clock"><span>YOUR PLANNED DEPARTURE · UTC</span><time data-ui="flight-date"></time><div class="p2-flight-track"><i data-ui="flight-bar"></i></div><small><span>LAUNCH FOOTAGE</span><span>LUNAR SITE SELECTION</span></small></div><div class="p2-film-error" data-ui="film-error" role="alert" hidden><span data-ui="film-error-text"></span><button data-ui="film-retry">Play launch footage</button></div><p class="p2-footage-credit"><a href="https://svs.gsfc.nasa.gov/31385" target="_blank" rel="noopener noreferrer">NASA · Artemis II launch ↗</a><br>Historical footage · Edited sequence</p></section>
 <footer class="p2-footer"><div class="p2-steps"><span data-step="intro" class="active"><b>01</b> Arrival date</span><i></i><span data-step="orbit"><b>02</b> Earth–Moon</span><i></i><span data-step="pad"><b>03</b> Launch</span><i></i><span data-step="flight"><b>04</b> Transit</span></div><span class="p2-footer-credit">NASA SPACE APPS / LUNAR LANDING SITE MISSION</span></footer>
 <section class="p2-boot" data-ui="boot" aria-label="System startup"><div class="p2-boot-box"><p class="p2-boot-head"><b>LLN</b> LUNAR MISSION SYSTEMS <span>P2 / DEPARTURE</span></p><ol class="p2-boot-log" data-ui="boot-log" aria-live="polite"></ol><div class="p2-boot-track"><i data-ui="boot-bar"></i></div><p class="p2-boot-foot"><span>INITIALIZING MISSION CONTROL</span><span data-ui="boot-percent">00%</span></p><p class="p2-error" data-ui="boot-error" role="alert"></p></div></section>
 `;
@@ -101,7 +106,7 @@ export function createMission({ eph, data, onMissionReady }) {
   const ui = name => root.querySelector(`[data-ui="${name}"]`);
   const events = new AbortController();
   const listen = (element, event, fn) => element.addEventListener(event, fn, { signal: events.signal });
-  let transit, preciseTime = false, disposed = false, completed = false, stage = 'boot', currentConfig = null;
+  let transit, film, filmPreloaded = false, preciseTime = false, disposed = false, completed = false, stage = 'boot', currentConfig = null;
   let arriveH = Math.min(Math.max(84, dateToHours(new Date(), eph)), Math.max(0, bounds.maxH - 168));
   const started = performance.now();
   const isoDay = h => eph.hoursToDate(h).toISOString().slice(0, 10);
@@ -126,7 +131,8 @@ export function createMission({ eph, data, onMissionReady }) {
       const mean = intervals.reduce((a, b) => a + b, 0) / Math.max(1, intervals.length);
       output.textContent = JSON.stringify({ stage, rafFps: Number((1000 / mean).toFixed(1)),
         p95Ms: Number((sorted[Math.floor(sorted.length * .95)] ?? 0).toFixed(1)),
-        surfaceFps: Number(root.dataset.surfaceFps || 0), ...transitPerformance });
+        surfaceFps: Number(root.dataset.surfaceFps || 0), ...transitPerformance,
+        ...(['flight', 'handoff'].includes(stage) && ui('film').getVideoPlaybackQuality ? { videoFrames: ui('film').getVideoPlaybackQuality().totalVideoFrames, droppedVideoFrames: ui('film').getVideoPlaybackQuality().droppedVideoFrames } : {}) });
       start = t; intervals = [];
     };
     profileFrame = requestAnimationFrame(sample);
@@ -153,7 +159,11 @@ export function createMission({ eph, data, onMissionReady }) {
     root.dataset.stage = next;
     root.querySelectorAll('[data-view]').forEach(section => { section.hidden = section.dataset.view !== next; });
     root.querySelectorAll('[data-step]').forEach(step => step.classList.toggle('active', step.dataset.step === next));
-    ui('transit').hidden = next === 'intro' || next === 'boot';
+    ui('transit').hidden = next !== 'orbit' && next !== 'pad';
+    ui('film').hidden = next !== 'flight';
+    if (next === 'pad' && !filmPreloaded) {
+      filmPreloaded = true; ui('film').preload = 'auto'; ui('film').load();
+    }
     if (next === 'orbit' || next === 'pad') transit?.show(next, arriveH);
     root.dispatchEvent(new CustomEvent('missionstagechange', { bubbles: true, detail: { stage: next } }));
     requestAnimationFrame(() => root.querySelector(`[data-view="${next}"] h1`)?.focus({ preventScroll: true }));
@@ -196,6 +206,7 @@ export function createMission({ eph, data, onMissionReady }) {
     stage = 'handoff';
     root.dataset.stage = stage;
     ui('transit').hidden = true;
+    film?.cancel(); ui('film').hidden = true;
     if (!existing) root.hidden = true;
     root.dispatchEvent(new CustomEvent('missionstagechange', { bubbles: true, detail: { stage } }));
     onMissionReady(config);
@@ -209,7 +220,7 @@ export function createMission({ eph, data, onMissionReady }) {
   function hideMission() {
     if (disposed) return;
     completed = true;
-    transit?.cancelFlight();
+    film?.cancel();
     setStage('handoff');
     ui('transit').hidden = true;
     if (!existing) root.hidden = true;
@@ -249,6 +260,26 @@ export function createMission({ eph, data, onMissionReady }) {
   listen(ui('config-form'), 'submit', event => event.preventDefault());
   listen(ui('config-form'), 'input', updateConfig);
   root.querySelectorAll('[data-stay]').forEach(button => listen(button, 'click', () => { ui('stay-days').value = String(Number(button.dataset.stay) / 24); updateConfig(); }));
+  const launchVideo = ui('film');
+  launchVideo.src = new URL('./scene/assets/artemis-launch.mp4', import.meta.url).href;
+  launchVideo.muted = true;
+  launchVideo.playsInline = true;
+  film = createLaunchFilm({
+    video: launchVideo,
+    onProgress({ progress, currentTime }) {
+      ui('flight-bar').style.width = `${progress * 100}%`;
+      ui('flight-phase').textContent = currentTime < 4 ? 'LIFTOFF' : currentTime < 7 ? 'POWERED ASCENT' : 'ABOVE EARTH';
+    },
+    onComplete() {
+      ui('restart').disabled = false;
+      finishMission(currentConfig);
+    },
+    onError() {
+      ui('film-error-text').textContent = 'Launch footage could not play. Try again, or skip to lunar arrival.';
+      ui('film-error').hidden = false;
+    }
+  });
+  listen(ui('film-retry'), 'click', () => { ui('film-error').hidden = true; film.play(); });
   listen(ui('launch'), 'click', () => {
     updateConfig();
     if (!currentConfig || !transit || completed || stage !== 'pad') return;
@@ -257,22 +288,15 @@ export function createMission({ eph, data, onMissionReady }) {
     ui('restart').disabled = true;
     ui('flight-date').textContent = fullDate(config.launchH);
     ui('flight-bar').style.width = '0%';
-    transit.startFlight({
-      launchH: config.launchH, arriveH: config.arriveH, duration: 9500,
-      onTick(h, telemetry = {}) {
-        ui('flight-date').textContent = eph.hoursToDate(h).toISOString().replace('T', ' ').slice(0, 19);
-        ui('flight-bar').style.width = `${(telemetry.progress ?? 0) * 100}%`;
-        ui('flight-phase').textContent = telemetry.phase ?? 'IGNITION & ASCENT';
-      },
-      onComplete() { ui('restart').disabled = false; finishMission(config); }
-    });
+    ui('film-error').hidden = true;
+    film.play();
   });
-  listen(ui('skip'), 'click', () => { if (stage === 'flight') transit?.skipFlight(); });
+  listen(ui('skip'), 'click', () => { if (stage === 'flight') film?.skip(); });
   listen(root, 'keydown', event => {
     // Keep date entry and Escape local; the host has its own navigation keys.
     event.stopPropagation();
     if (event.key !== 'Escape' || /INPUT|SELECT/.test(event.target.tagName)) return;
-    if (stage === 'flight') transit?.skipFlight();
+    if (stage === 'flight') film?.skip();
     else if (stage === 'pad') setStage('orbit');
     else if (stage === 'orbit') setStage('intro');
   });
@@ -334,6 +358,8 @@ export function createMission({ eph, data, onMissionReady }) {
       disposed = true;
       cancelAnimationFrame(profileFrame);
       events.abort();
+      film?.destroy();
+      launchVideo.removeAttribute('src'); launchVideo.load();
       transit?.dispose();
       root.replaceChildren();
       if (!existing) root.hidden = true;

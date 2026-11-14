@@ -1,8 +1,7 @@
 import * as T from 'three';
 import { Ephemeris, ME_TO_SCENE } from '../ephemeris.js';
 import { solveLunarTransfer } from './trajectory.js';
-import { sampleAscent } from './ascent.js';
-import { createAscentEnvironment, createExhaust } from './ascent-environment.js';
+import { createAscentEnvironment } from './ascent-environment.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 // NASA lunar albedo from the previous preview, kept inline for the offline single-file build.
@@ -12,7 +11,7 @@ const MOON_ALBEDO_URL = 'data:image/jpeg;base64,/9j/4Q00RXhpZgAASUkqAAgAAAAPAAAB
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const smooth = value => { const t = clamp(value, 0, 1); return t * t * (3 - 2 * t); };
 
-/** Independent Earth–Moon preview and compressed-time launch cinematography. */
+/** Independent Earth–Moon preview and launch-site configuration scene. */
 export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnchor, onPerformance, onTransfer }) {
   if (!canvas || !eph || typeof eph.update !== 'function') throw new TypeError('A canvas and ephemeris are required.');
   const meta = data?.ephemMeta ?? { count: eph.count, step_hours: eph.stepH, start_utc: new Date(eph.start).toISOString(), start_year: eph.startYear, end_year: eph.endYear };
@@ -20,25 +19,22 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
   if (!(samples instanceof Float32Array) || !Number.isFinite(radiusKm)) throw new TypeError('Ephemeris samples and lunar radius are required.');
   const transitEph = new Ephemeris(samples, meta, radiusKm);
   const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const previewValue = import.meta.env.DEV ? new URLSearchParams(location.search).get('flight-preview') : null;
-  const flightPreview = previewValue !== null && Number.isFinite(Number(previewValue)) ? clamp(Number(previewValue), 0, .89) : null;
   const renderer = new T.WebGLRenderer({ canvas, antialias: false, logarithmicDepthBuffer: true, powerPreference: 'high-performance' });
   renderer.outputColorSpace = T.SRGBColorSpace;
   renderer.toneMapping = T.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
   renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = T.PCFSoftShadowMap;
+  renderer.shadowMap.type = T.PCFShadowMap;
   renderer.shadowMap.autoUpdate = false;
   renderer.setClearColor(0x020408);
   const scene = new T.Scene(), camera = new T.PerspectiveCamera(42, 1, .5, 4000);
-  const space = new T.Group(), pad = new T.Group(), ascent = new T.Group(); scene.add(space, pad, ascent);
+  const space = new T.Group(), pad = new T.Group(); scene.add(space, pad);
   const v = (x = 0, y = 0, z = 0) => new T.Vector3(x, y, z);
   const target = v(), moonDirection = v(1), sunDirection = v(0, 1), moonCenter = v(), basisUp = v(0, 1), basisSide = v(0, 0, 1);
-  const ascentFog = new T.FogExp2(0x91afc4, .000025);
-  const ascentSun = v(1, 1, 1), resources = new Set(), root = canvas.closest('#mission');
-  let width = 1, height = 1, stage = 'orbit', frameId = 0, disposed = false, dive = null, flight = null;
+  const padSun = v(1, 1, 1), resources = new Set(), root = canvas.closest('#mission');
+  let width = 1, height = 1, stage = 'orbit', frameId = 0, disposed = false, dive = null;
   let displayH = 0, rawSun = [], rawEarth = [], lastAnchor = '', trajectory = null, lastRender = 0, quality = 1, smoothedFrameMs = 16;
-  let renderedFrames = 0, perfStart = performance.now(), lastTick = 0, hiddenAt = null, orbitStarted = performance.now();
+  let renderedFrames = 0, perfStart = performance.now(), hiddenAt = null, orbitStarted = performance.now();
   const sun = new T.DirectionalLight(0xfff8ef, 2.6); scene.add(sun, sun.target);
   const ambient = new T.AmbientLight(0x83a3c1, .18); scene.add(ambient);
   let seed = 71612;
@@ -96,26 +92,8 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
   Object.assign(flood.shadow.camera, { left:-125, right:125, top:155, bottom:-95, near:1, far:400 });
   flood.shadow.bias = -.00015; flood.shadow.normalBias = .08;
   const rim = new T.DirectionalLight(0x7294b9, 1.7); rim.position.set(-65, 90, -75); pad.add(rim);
-  const ascentAmbient = new T.HemisphereLight(0xb9dcff, 0x405a69, 1.4); ascent.add(ascentAmbient);
-  // Ascent coordinates are metres: the Earth radius, cloud heights, and rocket dimensions share one scale.
-  const earthRadiusM = 6371000;
-  const horizonEarth = new T.Mesh(new T.SphereGeometry(earthRadiusM, 192, 128), earthMaterial(ascentSun)); horizonEarth.position.y = -earthRadiusM; ascent.add(horizonEarth);
-  // A finer spherical patch under the departure site avoids kilometre-sized facets near the horizon.
-  const localEarth = new T.Mesh(new T.SphereGeometry(earthRadiusM + 2, 128, 128, Math.PI - 1.407 - .38, .76, Math.PI / 2 - .499 - .38, .76), horizonEarth.material);
-  const patchUv = localEarth.geometry.attributes.uv;
-  for (let i = 0; i < patchUv.count; i++) patchUv.setXY(i, (Math.PI - 1.407 - .38 + patchUv.getX(i) * .76) / (2 * Math.PI), 1 - (Math.PI / 2 - .499 - .38 + (1 - patchUv.getY(i)) * .76) / Math.PI);
-  localEarth.position.copy(horizonEarth.position); ascent.add(localEarth);
-  const horizonClouds = new T.Mesh(new T.SphereGeometry(earthRadiusM + 10000, 96, 64), cloudMaterial.clone()); horizonClouds.position.copy(horizonEarth.position); ascent.add(horizonClouds);
-  const environment = createAscentEnvironment({ T, sunDirection: ascentSun, terrainMap, resources });
+  const environment = createAscentEnvironment({ T, sunDirection: padSun, terrainMap, resources });
   scene.add(environment.group); environment.group.visible = false;
-  const exhaust = createExhaust({ T, engines: launch.engines });
-  const flames = exhaust.group; launch.rocket.add(flames); flames.visible = false;
-  const puffMap = environment.smokeMap || environment.cloudMap;
-  const smoke = Array.from({ length: 18 }, () => {
-    const sprite = new T.Sprite(new T.SpriteMaterial({ map: puffMap, transparent: true, opacity: 0, depthWrite: false }));
-    sprite.userData = { angle: random() * Math.PI * 2, speed: 8 + random() * 16, delay: random() * .7 }; pad.add(sprite); return sprite;
-  });
-  const veil = new T.Mesh(new T.PlaneGeometry(2, 2), new T.ShaderMaterial({ transparent: true, depthTest: false, depthWrite: false, uniforms: { opacity: { value: 0 } }, vertexShader: 'void main(){gl_Position=vec4(position.xy,0.,1.);}', fragmentShader: 'uniform float opacity;void main(){gl_FragColor=vec4(0.,0.,0.,opacity);}' })); veil.frustumCulled = false; veil.renderOrder = 10000; scene.add(veil);
   function orbitPose(now = orbitStarted) {
     const distance = Math.max(83, 34 / (Math.tan(T.MathUtils.degToRad(camera.fov / 2)) * (width / height))), t = moonDirection.clone().multiplyScalar(22);
     const viewerSide = basisSide.clone().multiplyScalar(sunDirection.dot(basisSide) < 0 ? -1 : 1);
@@ -129,7 +107,6 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
     const narrow = width / height < .9;
     return { p: narrow ? v(144, 82, 211) : launch.cameraPosition.clone(), t: narrow ? v(-11, 43, 0) : launch.cameraTarget.clone(), up: v(0, 1, 0) };
   }
-  function arrivalPose() { return { p: moonCenter.clone().addScaledVector(basisSide, 13).addScaledVector(basisUp, 4.5).addScaledVector(moonDirection, -5), t: moonCenter.clone(), up: basisUp.clone() }; }
   function applyPose(pose) { camera.position.copy(pose.p); target.copy(pose.t); camera.up.copy(pose.up); camera.lookAt(target); }
   function updateGeometry(h) {
     if (!Number.isFinite(h) || h < 0 || h > transitEph.maxH) throw new RangeError('The selected time is outside the ephemeris coverage.');
@@ -157,10 +134,10 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
     // The selectable launch complex is a map marker; injection is from the assumed parking orbit.
     launchMarker.position.copy(basisSide).addScaledVector(basisUp, .18).addScaledVector(moonDirection, .12).setLength(7.69);
     displayH = h;
-    if (stage === 'orbit' && !flight && !dive) applyPose(orbitPose());
+    if (stage === 'orbit' && !dive) applyPose(orbitPose());
   }
   function setVisible(showPad) {
-    pad.visible = showPad; space.visible = !showPad; ascent.visible = false;
+    pad.visible = showPad; space.visible = !showPad;
     scene.fog = showPad ? new T.FogExp2(0x849eac, .00018) : null;
     camera.far = showPad ? 18000000 : 4000; camera.fov = 42; camera.updateProjectionMatrix(); environment.group.visible = showPad; stars.position.set(0, 0, 0); stars.material.opacity = showPad ? 0 : .6;
     ambient.intensity = showPad ? .2 : .18;
@@ -175,107 +152,33 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
     const key = `${Math.round(result.x)},${Math.round(result.y)},${result.visible}`;
     if (key !== lastAnchor) { lastAnchor = key; onLaunchAnchor?.(result); }
   }
-  function restoreRocket() { launch.group.add(launch.rocket); launch.reset(); }
   function show(next, h = displayH) {
-    if (!['orbit','pad','flight'].includes(next)) throw new Error(`Unknown transit stage: ${next}`);
-    if (flight) return;
+    if (!['orbit','pad'].includes(next)) throw new Error(`Unknown transit stage: ${next}`);
     const wasOrbit = stage === 'orbit', from = { p: camera.position.clone(), t: target.clone(), up: camera.up.clone() };
-    stage = next; if (next === 'orbit') orbitStarted = performance.now(); dive = null; restoreRocket(); flames.visible = false; veil.material.uniforms.opacity.value = 0;
-    smoke.forEach(p => p.material.opacity = 0); updateGeometry(h); lastAnchor = '';
+    stage = next; if (next === 'orbit') orbitStarted = performance.now(); dive = null; launch.reset();
+    updateGeometry(h); lastAnchor = '';
     if (next === 'pad' && wasOrbit && !reduced) { setVisible(false); dive = { start: performance.now(), from, to: padPose(), duration: 1400 }; }
     else { setVisible(next === 'pad'); applyPose(next === 'pad' ? padPose() : orbitPose()); }
     publishAnchor();
-  }
-  function completeFlight() {
-    if (!flight || flight.completed) return;
-    const current = flight; current.completed = true; flight = null;
-    restoreRocket(); updateGeometry(current.arriveH); setVisible(false); applyPose(arrivalPose()); veil.material.uniforms.opacity.value = 0;
-    current.onTick?.(current.arriveH, { progress: 1, phase: 'LUNAR ARRIVAL', altitudeKm: null }); current.onComplete?.();
-  }
-  function startFlight({ launchH, arriveH, onTick, onComplete, duration = 9500 }) {
-    if (flight) return;
-    if (![launchH, arriveH, duration].every(Number.isFinite) || launchH < 0 || arriveH < launchH || arriveH > transitEph.maxH || duration <= 0) throw new RangeError('Invalid flight times.');
-    stage = 'flight'; dive = null; restoreRocket();
-    flight = { launchH, arriveH, onTick, onComplete, duration, start: performance.now(), completed: false };
-    // Keep the preview trajectory fixed. The launch camera never rebuilds orbital geometry.
-    transitEph.update(launchH);
-    const localUp = v(Math.cos(.499)*Math.cos(-1.407), Math.sin(.499), -Math.cos(.499)*Math.sin(-1.407));
-    const worldUp = localUp.clone().applyQuaternion(transitEph.earthRot);
-    const east = v(-Math.sin(-1.407), 0, -Math.cos(-1.407)).applyQuaternion(transitEph.earthRot);
-    const south = v().crossVectors(east, worldUp).normalize();
-    const toLaunch = new T.Quaternion().setFromRotationMatrix(new T.Matrix4().makeBasis(east, worldUp, south)).invert();
-    horizonEarth.quaternion.copy(toLaunch).multiply(transitEph.earthRot); localEarth.quaternion.copy(horizonEarth.quaternion); horizonClouds.quaternion.copy(horizonEarth.quaternion);
-    ascentSun.copy(transitEph.sunDir).applyQuaternion(toLaunch);
-    setVisible(true); applyPose(padPose()); flames.visible = true; publishAnchor(); lastTick = 0;
-    onTick?.(launchH, { progress: 0, phase: 'IGNITION', altitudeKm: 0 });
   }
   function resize() {
     width = Math.max(1, canvas.clientWidth || innerWidth); height = Math.max(1, canvas.clientHeight || innerHeight);
     renderer.setPixelRatio(Math.max(.65, Math.min(devicePixelRatio || 1, 1.35, Math.sqrt(1150000/(width*height))) * quality));
     renderer.setSize(width,height,false); camera.aspect = width/height; camera.updateProjectionMatrix();
-    if (dive) dive.to = padPose(); else if (!flight) applyPose(stage === 'pad' ? padPose() : orbitPose());
+    if (dive) dive.to = padPose(); else applyPose(stage === 'pad' ? padPose() : orbitPose());
     lastAnchor = ''; publishAnchor();
-  }
-  const ascentPosition = v(), direction = v(), vertical = v(0,1,0);
-  function renderFlight(now) {
-    const current = flight, p = flightPreview ?? clamp((now-current.start)/current.duration,0,1), s = p*9.5;
-    let phase, altitude = 0;
-    let ascentSample = null;
-    if (p < .9) {
-      ascentSample = sampleAscent(p, { reducedMotion: reduced, aspect: width / height });
-      altitude = ascentSample.altitudeM;
-      ascentPosition.fromArray(ascentSample.positionM);
-      direction.fromArray(ascentSample.direction);
-      const isHigh = ascentSample.shot !== 'ground';
-      if (isHigh && launch.rocket.parent !== ascent) ascent.add(launch.rocket);
-      launch.rocket.position.copy(ascentPosition);
-      launch.rocket.quaternion.setFromUnitVectors(vertical, direction);
-      pad.visible = !isHigh; ascent.visible = isHigh; space.visible = false;
-      environment.group.visible = true;
-      camera.position.copy(ascentPosition).add(v(...ascentSample.camera.offsetM));
-      target.copy(ascentPosition).add(v(...ascentSample.camera.targetOffsetM));
-      camera.up.set(0,1,0); camera.lookAt(target);
-      const fov = ascentSample.camera.fov;
-      if (camera.fov !== fov || camera.far !== 18000000) {
-        camera.fov = fov; camera.far = 18000000; camera.updateProjectionMatrix();
-      }
-      // Distant surface contrast disappears into the same atmospheric horizon as the sky.
-      const air = Math.exp(-Math.max(0, altitude)/19000);
-      const day = smooth((ascentSun.y + .12)/.32);
-      const rimBlend = smooth((altitude-11000)/21000), light = .17+.83*day;
-      ascentFog.color.setRGB(((.58+(.09-.58)*rimBlend)*Math.sqrt(air)*.88 + (.001+(.035-.001)*air)*.12)*light, ((.71+(.29-.71)*rimBlend)*Math.sqrt(air)*.88 + (.003+(.19-.003)*air)*.12)*light, ((.82+(.62-.82)*rimBlend)*Math.sqrt(air)*.88 + (.008+(.42-.008)*air)*.12)*light);
-      ascentFog.density = Math.max(.000003, .000025 * Math.exp(-altitude/6000));
-      scene.fog = ascentFog;
-      horizonClouds.visible = false;
-      stars.material.opacity = 0;
-      sun.position.copy(ascentPosition).addScaledVector(ascentSun,10000); sun.target.position.copy(ascentPosition);
-      ascentAmbient.intensity = .85;
-      environment.update({ altitude, position: ascentPosition, camera, time: now / 1000 });
-      flames.visible = true;
-      exhaust.update({ time: now / 1000, altitude, ...ascentSample.plume });
-      if (!isHigh) for (const puff of smoke) {
-        const age = Math.max(0,s-puff.userData.delay), distance = age*puff.userData.speed;
-        puff.position.set(Math.cos(puff.userData.angle)*distance,3+age*3,Math.sin(puff.userData.angle)*distance);
-        puff.scale.setScalar(10+age*17); puff.material.opacity = Math.min(.75,age*.4);
-      }
-      phase = ascentSample.phase;
-      veil.material.uniforms.opacity.value = ascentSample.blackout;
-    } else {
-      if (ascent.visible || pad.visible) { setVisible(false); sun.position.copy(sunDirection).multiplyScalar(500); sun.target.position.set(0,0,0); }
-      const near = arrivalPose(), a = smooth((p-.9)/.1);
-      camera.position.copy(near.p).addScaledVector(basisSide,(1-a)*12); target.copy(near.t); camera.up.copy(near.up); camera.lookAt(target);
-      veil.material.uniforms.opacity.value = 1-smooth((p-.9)/.035); phase = 'LUNAR APPROACH · TIME COMPRESSED';
-    }
-    // Most of the film follows ascent; the final dissolve advances the cruise interval.
-    const ascentH = Math.min(current.arriveH, current.launchH + 120/3600);
-    const h = p < .9 ? Math.min(current.arriveH, current.launchH + ascentSample.elapsedS/3600) : ascentH + (current.arriveH-ascentH)*((p-.9)/.1);
-    if (now-lastTick > 90 || p===1) { current.onTick?.(h,{progress:p,phase,altitudeKm:p<.9?altitude/1000:null}); lastTick=now; }
-    if (p === 1) completeFlight();
   }
   function render(now) {
     if (disposed) return; frameId = requestAnimationFrame(render);
-    if (canvas.hidden || root?.hidden || document.hidden) { lastRender = 0; return; }
-    const active = !!(flight || dive), minFrame = active && !reduced ? 0 : 1000/30;
+    if (canvas.hidden || root?.hidden || document.hidden) {
+      lastRender = 0;
+      if (now - perfStart > 1000) {
+        onPerformance?.({ fps: 0, drawCalls: 0, triangles: 0, pixelRatio: renderer.getPixelRatio(), targetFps: 0, stage: 'paused' });
+        renderedFrames = 0; perfStart = now;
+      }
+      return;
+    }
+    const active = !!dive, minFrame = active && !reduced ? 0 : 1000/30;
     if (lastRender && now-lastRender < minFrame-.5) return;
     if (active && lastRender) smoothedFrameMs = smoothedFrameMs*.94+(now-lastRender)*.06;
     lastRender = now;
@@ -285,12 +188,10 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
       else { if (!pad.visible) setVisible(true); const a=smooth((p-.48)/.52); camera.position.lerpVectors(v(205,170,310),dive.to.p,a); target.lerpVectors(v(-12,40),dive.to.t,a); camera.up.set(0,1,0); }
       camera.lookAt(target); if(p===1)dive=null;
     }
-    if (flight) renderFlight(now);
-    else if (stage==='orbit' && !dive) { applyPose(orbitPose(now)); globeClouds.quaternion.copy(earth.quaternion).multiply(new T.Quaternion().setFromAxisAngle(v(0,1),Math.sin(now*.000025)*.055)); }
+    if (stage==='orbit' && !dive) { applyPose(orbitPose(now)); globeClouds.quaternion.copy(earth.quaternion).multiply(new T.Quaternion().setFromAxisAngle(v(0,1),Math.sin(now*.000025)*.055)); }
     if (pad.visible) {
-      launch.animate(now,flight?(now-flight.start)/1000:null);
-      if (flight) renderer.shadowMap.needsUpdate = true;
-      if (!flight) environment.update({ altitude: 0, position: v(), camera, time: now/1000 });
+      launch.animate(now);
+      environment.update({ camera });
     }
     publishAnchor(); renderer.render(scene,camera); renderedFrames++;
     if (now-perfStart > 1000) {
@@ -301,7 +202,7 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
   }
   function visibilityChange() {
     if(document.hidden) hiddenAt=performance.now();
-    else if(hiddenAt!=null){const delay=performance.now()-hiddenAt;if(flight)flight.start+=delay;if(dive)dive.start+=delay;hiddenAt=null;lastRender=0;}
+    else if(hiddenAt!=null){const delay=performance.now()-hiddenAt;if(dive)dive.start+=delay;hiddenAt=null;lastRender=0;}
   }
   // Precompile the inexpensive visible preview; detailed launch shaders compile when selected.
   updateGeometry(Math.min(84,transitEph.maxH)); setVisible(false); resize(); renderer.compile(scene,camera);
@@ -309,10 +210,9 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
   window.addEventListener('resize',resize); document.addEventListener('visibilitychange',visibilityChange);
   const observer=typeof ResizeObserver!=='undefined'?new ResizeObserver(resize):null;observer?.observe(canvas);
   frameId=requestAnimationFrame(render);
-  return {show,updateGeometry,startFlight,skipFlight:completeFlight,
-    cancelFlight(){flight=null;dive=null;flames.visible=false;},
+  return {show,updateGeometry,
     getGeometrySnapshot(){return {displayH,earthPos:[...rawEarth],sunDir:[...rawSun],moonDirection:moonDirection.toArray(),sunDirection:sunDirection.toArray(),moonPosition:moonCenter.toArray(),earthPosition:[0,0,0],earthRotation:earth.quaternion.toArray(),moonRotation:moon.quaternion.toArray(),stage,trajectoryModel:trajectory?.model,endpointErrorKm:trajectory?.endpointErrorKm};},
-    dispose(){if(disposed)return;disposed=true;flight=null;dive=null;cancelAnimationFrame(frameId);window.removeEventListener('resize',resize);document.removeEventListener('visibilitychange',visibilityChange);observer?.disconnect();onLaunchAnchor?.({x:0,y:0,visible:false});
+    dispose(){if(disposed)return;disposed=true;dive=null;cancelAnimationFrame(frameId);window.removeEventListener('resize',resize);document.removeEventListener('visibilitychange',visibilityChange);observer?.disconnect();onLaunchAnchor?.({x:0,y:0,visible:false});
       const geometries=new Set(),materials=new Set();scene.traverse(o=>{if(o.geometry)geometries.add(o.geometry);for(const m of [o.material].flat().filter(Boolean))materials.add(m);});
       geometries.forEach(g=>g.dispose());materials.forEach(m=>{for(const value of Object.values(m))if(value?.isTexture)resources.add(value);m.dispose();});resources.forEach(t=>t.dispose());renderer.dispose();}
   };
@@ -457,17 +357,13 @@ function createLaunchComplex(T) {
   }
   // Four small capsule windows, with no fictional station rings or deployed solar arrays.
   for (const x of [-.65, .65]) box([.42, .43, .07], [x, 76.8, 2.0], glass, rocket).rotation.x = -.35;
-  const engines = [];
-  function engine(x, z, radius, nozzleY, booster = false) {
+  function engine(x, z, radius, nozzleY) {
     const points = [[radius, nozzleY], [radius * .96, nozzleY + .22], [radius * .65, nozzleY + 1.25], [radius * .31, nozzleY + 2.25], [radius * .38, nozzleY + 2.7]];
     const bell = mesh(new T.LatheGeometry(points.map(([r, y]) => new T.Vector2(r, y)), 32), silver, rocket, [x, 0, z]);
     const innerMat = black.clone(); innerMat.side = T.BackSide;
     mesh(bell.geometry, innerMat, rocket, [x, 0, z]);
     ring(radius, .065, nozzleY, dark, rocket, x, z);
     cylinder(radius * .25, radius * .35, .9, [x, nozzleY + 2.85, z], dark, rocket, 16);
-    const exhaust = vector(x, nozzleY, z);
-    exhaust.userData = { radius, booster };
-    engines.push(exhaust);
   }
   for (const x of [-1.45, 1.45]) for (const z of [-1.45, 1.45]) engine(x, z, .92, 5.4);
   for (const x of [-6.05, 6.05]) {
@@ -486,7 +382,7 @@ function createLaunchComplex(T) {
       box([1.05, 1.5, 1.4], [x - Math.sign(x) * 1.45, y, 0], white, rocket);
     }
     cylinder(2.15, 2.25, 1.1, [x, 6.65, 0], dark, rocket, 48);
-    engine(x, 0, 1.45, 4.85, true);
+    engine(x, 0, 1.45, 4.85);
   }
   function decal(text, width, height, position, parent = rocket, color = '#26313b', background = 'transparent') {
     const texture = makeTexture(512, 256, (ctx, w, h) => {
@@ -755,11 +651,9 @@ function createLaunchComplex(T) {
     }
   }
   mergeRigidPieces(group);
-  const smoothstep = x => { const t = Math.max(0, Math.min(1, x)); return t * t * (3 - 2 * t); };
-  function animate(time, launchElapsed = null) {
+  function animate(time) {
     const seconds = time / 1000;
     statusLights.forEach((lamp, index) => lamp.material.emissiveIntensity = 1.4 + (Math.sin(seconds * 3 + index * .8) > .5 ? 1.5 : 0));
-    arms.forEach((arm, i) => arm.rotation.y = launchElapsed == null ? 0 : -smoothstep((launchElapsed + .3 - i * .12) / 1.6) * 1.32);
   }
   function reset() {
     rocket.position.set(0, 0, 0);
@@ -767,7 +661,7 @@ function createLaunchComplex(T) {
     arms.forEach(arm => arm.rotation.y = 0);
   }
   return {
-    group, rocket, engines, animate, reset,
+    group, rocket, animate, reset,
     cameraPosition: vector(113, 62, 151),
     cameraTarget: vector(-15, 41, 0),
   };
