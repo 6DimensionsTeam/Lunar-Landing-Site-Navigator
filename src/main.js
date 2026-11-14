@@ -742,6 +742,8 @@ async function boot() {
           const hasSelection = typeof mission.handler === 'function';
           hud.hideScreen('mission');
           syncScene(config.arriveH);
+          // P1 stops the surface loop that normally refreshes the shared UTC display.
+          hud.tick(config.arriveH, eph.hoursToDate(config.arriveH));
           mission.ready(config);
           // The host remains in home mode behind P2, so go('home') can be a no-op.
           if (!hasSelection && mode === 'home') {
