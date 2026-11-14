@@ -1,6 +1,8 @@
 import * as T from 'three';
 import { Ephemeris, ME_TO_SCENE } from '../ephemeris.js';
 import { solveLunarTransfer } from './trajectory.js';
+import { sampleAscent } from './ascent.js';
+import { createAscentEnvironment, createExhaust } from './ascent-environment.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 // NASA lunar albedo from the previous preview, kept inline for the offline single-file build.
@@ -24,11 +26,15 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
   renderer.outputColorSpace = T.SRGBColorSpace;
   renderer.toneMapping = T.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 1.05;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = T.PCFSoftShadowMap;
+  renderer.shadowMap.autoUpdate = false;
   renderer.setClearColor(0x020408);
   const scene = new T.Scene(), camera = new T.PerspectiveCamera(42, 1, .5, 4000);
   const space = new T.Group(), pad = new T.Group(), ascent = new T.Group(); scene.add(space, pad, ascent);
   const v = (x = 0, y = 0, z = 0) => new T.Vector3(x, y, z);
   const target = v(), moonDirection = v(1), sunDirection = v(0, 1), moonCenter = v(), basisUp = v(0, 1), basisSide = v(0, 0, 1);
+  const ascentFog = new T.FogExp2(0x91afc4, .000025);
   const ascentSun = v(1, 1, 1), resources = new Set(), root = canvas.closest('#mission');
   let width = 1, height = 1, stage = 'orbit', frameId = 0, disposed = false, dive = null, flight = null;
   let displayH = 0, rawSun = [], rawEarth = [], lastAnchor = '', trajectory = null, lastRender = 0, quality = 1, smoothedFrameMs = 16;
@@ -47,14 +53,16 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
   const loadTexture = async (url, label) => {
     const texture = await loader.loadAsync(url); texture.colorSpace = T.SRGBColorSpace;
     texture.anisotropy = Math.min(renderer.capabilities.getMaxAnisotropy(), 4); resources.add(texture);
-    onProgress?.({ loaded: ++loaded, total: 4, label }); return texture;
+    onProgress?.({ loaded: ++loaded, total: 6, label }); return texture;
   };
-  let earthDay, earthNight, moonMap;
+  let earthDay, earthNight, moonMap, earthCloudMap, terrainMap;
   try {
-    [earthDay, earthNight, moonMap] = await Promise.all([
-      loadTexture(data?.earthDayUrl ?? new URL('../data/earth_day.jpg', import.meta.url).href, 'Earth surface'),
+    [earthDay, earthNight, moonMap, earthCloudMap, terrainMap] = await Promise.all([
+      loadTexture(new URL('./assets/earth-surface-june.jpg', import.meta.url).href, 'NASA cloud-free Earth surface'),
       loadTexture(data?.earthNightUrl ?? new URL('../data/earth_night.jpg', import.meta.url).href, 'Earth at night'),
-      loadTexture(MOON_ALBEDO_URL, 'Lunar surface')
+      loadTexture(MOON_ALBEDO_URL, 'Lunar surface'),
+      loadTexture(new URL('./assets/earth-clouds.jpg', import.meta.url).href, 'NASA cloud composite'),
+      loadTexture(new URL('./assets/cape-canaveral.jpg', import.meta.url).href, 'Cape Canaveral coastal imagery')
     ]);
   } catch (error) { resources.forEach(texture => texture.dispose()); renderer.dispose(); throw new Error('Planet textures could not be loaded.', { cause: error }); }
   function earthMaterial(direction) {
@@ -63,6 +71,8 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
       shader.uniforms.transitSun = { value: direction };
       shader.vertexShader = shader.vertexShader.replace('#include <common>', '#include <common>\nvarying vec3 transitWorldNormal;').replace('#include <beginnormal_vertex>', '#include <beginnormal_vertex>\ntransitWorldNormal = normalize(mat3(modelMatrix) * objectNormal);');
       shader.fragmentShader = shader.fragmentShader.replace('#include <common>', '#include <common>\nuniform vec3 transitSun; varying vec3 transitWorldNormal;').replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\ntotalEmissiveRadiance *= 1.0 - smoothstep(-0.15, 0.1, dot(normalize(transitWorldNormal), transitSun));');
+      // Approximate the blue atmospheric contribution above very dark ocean pixels.
+      shader.fragmentShader = shader.fragmentShader.replace('#include <map_fragment>', '#include <map_fragment>\nfloat ocean = step(diffuseColor.r * 1.12, diffuseColor.b) * step(diffuseColor.g * 1.08, diffuseColor.b) * (1.0 - smoothstep(0.025, 0.08, max(diffuseColor.r, max(diffuseColor.g, diffuseColor.b)))); diffuseColor.rgb += vec3(0.008, 0.027, 0.075) * ocean;');
     };
     return material;
   }
@@ -70,15 +80,8 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
   const moon = new T.Mesh(new T.SphereGeometry(3.4, 64, 40), new T.MeshStandardMaterial({ map: moonMap, roughness: 1 })); space.add(moon);
   const sphereToME = new T.Matrix4().set(1, 0, 0, 0, 0, 0, -1, 0, 0, 1, 0, 0, 0, 0, 0, 1);
   moon.quaternion.setFromRotationMatrix(new T.Matrix4().setFromMatrix3(ME_TO_SCENE).multiply(sphereToME));
-  const cloudCanvas = document.createElement('canvas'); cloudCanvas.width = 1024; cloudCanvas.height = 512;
-  const cc = cloudCanvas.getContext('2d');
-  for (let i = 0; i < 1700; i++) {
-    const x = random() * 1024, y = 60 + random() * 392, radius = 4 + random() * 28;
-    const g = cc.createRadialGradient(x, y, 0, x, y, radius); g.addColorStop(0, 'rgba(255,255,255,.2)'); g.addColorStop(1, 'rgba(255,255,255,0)');
-    cc.fillStyle = g; cc.save(); cc.translate(x, y); cc.scale(2.8, .65); cc.translate(-x, -y); cc.fillRect(x - radius, y - radius, radius * 2, radius * 2); cc.restore();
-  }
-  const cloudMap = new T.CanvasTexture(cloudCanvas); cloudMap.colorSpace = T.SRGBColorSpace; resources.add(cloudMap);
-  const cloudMaterial = new T.MeshStandardMaterial({ map: cloudMap, transparent: true, opacity: .30, depthWrite: false, roughness: 1 });
+  earthCloudMap.colorSpace = T.NoColorSpace;
+  const cloudMaterial = new T.MeshStandardMaterial({ color: 0xffffff, alphaMap: earthCloudMap, transparent: true, opacity: .86, depthWrite: false, roughness: 1 });
   const globeClouds = new T.Mesh(new T.SphereGeometry(7.65, 48, 32), cloudMaterial); space.add(globeClouds);
   const atmosphereMaterial = new T.ShaderMaterial({ side: T.BackSide, transparent: true, depthWrite: false, blending: T.AdditiveBlending,
     vertexShader: 'varying vec3 n;varying vec3 eye;void main(){vec4 p=modelViewMatrix*vec4(position,1.);n=normalize(normalMatrix*normal);eye=normalize(-p.xyz);gl_Position=projectionMatrix*p;}',
@@ -89,6 +92,9 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
   const launch = createLaunchComplex(T); pad.add(launch.group);
   const padAmbient = new T.HemisphereLight(0xc6ddef, 0x33313a, 1.3); pad.add(padAmbient);
   const flood = new T.DirectionalLight(0xe4f1fb, 2.5); flood.position.set(70, 100, 110); pad.add(flood);
+  flood.castShadow = true; flood.shadow.mapSize.set(1024,1024);
+  Object.assign(flood.shadow.camera, { left:-125, right:125, top:155, bottom:-95, near:1, far:400 });
+  flood.shadow.bias = -.00015; flood.shadow.normalBias = .08;
   const rim = new T.DirectionalLight(0x7294b9, 1.7); rim.position.set(-65, 90, -75); pad.add(rim);
   const ascentAmbient = new T.HemisphereLight(0xb9dcff, 0x405a69, 1.4); ascent.add(ascentAmbient);
   // Ascent coordinates are metres: the Earth radius, cloud heights, and rocket dimensions share one scale.
@@ -100,46 +106,11 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
   for (let i = 0; i < patchUv.count; i++) patchUv.setXY(i, (Math.PI - 1.407 - .38 + patchUv.getX(i) * .76) / (2 * Math.PI), 1 - (Math.PI / 2 - .499 - .38 + (1 - patchUv.getY(i)) * .76) / Math.PI);
   localEarth.position.copy(horizonEarth.position); ascent.add(localEarth);
   const horizonClouds = new T.Mesh(new T.SphereGeometry(earthRadiusM + 10000, 96, 64), cloudMaterial.clone()); horizonClouds.position.copy(horizonEarth.position); ascent.add(horizonClouds);
-  const sky = new T.Mesh(new T.SphereGeometry(3000, 32, 20), new T.ShaderMaterial({ side: T.BackSide, depthWrite: false, depthTest: false,
-    uniforms: { air: { value: 1 } },
-    vertexShader: 'varying vec3 ray;void main(){ray=normalize(position);gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}',
-    fragmentShader: 'uniform float air;varying vec3 ray;void main(){float h=pow(max(0.,ray.y),.4);vec3 c=mix(vec3(.5,.67,.8),vec3(.025,.14,.34),h);gl_FragColor=vec4(c*air,1.);}', transparent: false })); sky.renderOrder = -100; ascent.add(sky);
-  const puffCanvas = document.createElement('canvas'); puffCanvas.width = puffCanvas.height = 256;
-  const pc = puffCanvas.getContext('2d');
-  for (let i = 0; i < 22; i++) {
-    const x = 42 + random() * 170, y = 95 + random() * 80, r = 24 + random() * 38;
-    const g = pc.createRadialGradient(x, y, 0, x, y, r); g.addColorStop(0, 'rgba(255,255,255,.85)'); g.addColorStop(.58, 'rgba(245,250,255,.68)'); g.addColorStop(1, 'rgba(225,239,250,0)'); pc.fillStyle = g; pc.fillRect(x-r,y-r,2*r,2*r);
-  }
-  const puffMap = new T.CanvasTexture(puffCanvas); puffMap.colorSpace = T.SRGBColorSpace; resources.add(puffMap);
-  const cloudPuffs = new T.InstancedMesh(new T.PlaneGeometry(1, 1), new T.ShaderMaterial({ transparent: true, depthWrite: false,
-    uniforms: { map: { value: puffMap }, opacity: { value: 1 } },
-    vertexShader: '#include <common>\n#include <logdepthbuf_pars_vertex>\nvarying vec2 p;varying float distanceToCloud;void main(){p=uv;vec4 center=modelViewMatrix*instanceMatrix*vec4(0.,0.,0.,1.);distanceToCloud=length(center.xyz);center.xy+=position.xy*vec2(length(instanceMatrix[0].xyz),length(instanceMatrix[1].xyz));gl_Position=projectionMatrix*center;\n#include <logdepthbuf_vertex>\n}',
-    fragmentShader: '#include <logdepthbuf_pars_fragment>\nuniform sampler2D map;uniform float opacity;varying vec2 p;varying float distanceToCloud;void main(){\n#include <logdepthbuf_fragment>\nvec4 c=texture2D(map,p);if(c.a<.015)discard;float fade=smoothstep(40.,180.,distanceToCloud);gl_FragColor=vec4(mix(vec3(.6,.72,.84),vec3(1.),p.y)*c.rgb,pow(c.a,.9)*opacity*fade);}' }), 128);
-  const cloudTransform = new T.Object3D();
-  for (let i = 0; i < 128; i++) {
-    if (i < 64) {
-      const bank = Math.floor(i / 4), lane = i % 4, y = 900 + bank * 1100 + (random() - .5) * 250;
-      const u = Math.pow(y / 200000, 1 / 3.35), pathX = y * .14 * smooth(u / .7);
-      cloudTransform.position.set(pathX + [-600, 380, -250, 650][lane], y, -y * .045 - [700, 1100, 1600, 500][lane]);
-      cloudTransform.scale.set(650 + random() * 650, 450 + random() * 450, 1);
-    } else {
-      const j = i - 64, x = (j % 12 - 5.5) * 1500, z = -1800 - Math.floor(j / 12) * 1700;
-      const y = 2200 + (j % 3) * 1700 + (random() - .5) * 600;
-      cloudTransform.position.set(x + (random() - .5) * 550, y, z);
-      cloudTransform.scale.set(1100 + random() * 800, 650 + random() * 600, 1);
-    }
-    cloudTransform.updateMatrix(); cloudPuffs.setMatrixAt(i, cloudTransform.matrix);
-  }
-  cloudPuffs.frustumCulled = false; ascent.add(cloudPuffs);
-  const flames = new T.Group(); launch.rocket.add(flames); flames.visible = false;
-  const flameMat = new T.ShaderMaterial({ transparent: true, depthWrite: false, blending: T.AdditiveBlending, side: T.DoubleSide, uniforms: { time: { value: 0 } },
-    vertexShader: '#include <common>\n#include <logdepthbuf_pars_vertex>\nvarying vec2 p;void main(){p=uv;gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);\n#include <logdepthbuf_vertex>\n}',
-    fragmentShader: '#include <logdepthbuf_pars_fragment>\nvarying vec2 p;uniform float time;void main(){\n#include <logdepthbuf_fragment>\nfloat a=pow(p.y,.55)*(.8+.2*sin(time*22.+p.y*39.));vec3 c=mix(vec3(1.,.16,.015),vec3(1.,.96,.8),p.y);gl_FragColor=vec4(c,a);}' });
-  for (const exit of launch.engines) {
-    const length = exit.userData.booster ? 34 : 27;
-    const flame = new T.Mesh(new T.ConeGeometry(exit.userData.radius * .95, length, 12, 1, true), flameMat);
-    flame.rotation.z = Math.PI; flame.position.copy(exit); flame.position.y -= length / 2; flames.add(flame);
-  }
+  const environment = createAscentEnvironment({ T, sunDirection: ascentSun, terrainMap, resources });
+  scene.add(environment.group); environment.group.visible = false;
+  const exhaust = createExhaust({ T, engines: launch.engines });
+  const flames = exhaust.group; launch.rocket.add(flames); flames.visible = false;
+  const puffMap = environment.smokeMap || environment.cloudMap;
   const smoke = Array.from({ length: 18 }, () => {
     const sprite = new T.Sprite(new T.SpriteMaterial({ map: puffMap, transparent: true, opacity: 0, depthWrite: false }));
     sprite.userData = { angle: random() * Math.PI * 2, speed: 8 + random() * 16, delay: random() * .7 }; pad.add(sprite); return sprite;
@@ -190,9 +161,10 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
   }
   function setVisible(showPad) {
     pad.visible = showPad; space.visible = !showPad; ascent.visible = false;
-    scene.fog = showPad ? new T.FogExp2(0x08121d, .0009) : null;
-    camera.far = 4000; camera.updateProjectionMatrix(); stars.position.set(0, 0, 0); stars.material.opacity = .6;
+    scene.fog = showPad ? new T.FogExp2(0x849eac, .00018) : null;
+    camera.far = showPad ? 18000000 : 4000; camera.fov = 42; camera.updateProjectionMatrix(); environment.group.visible = showPad; stars.position.set(0, 0, 0); stars.material.opacity = showPad ? 0 : .6;
     ambient.intensity = showPad ? .2 : .18;
+    if (showPad) renderer.shadowMap.needsUpdate = true;
   }
   function publishAnchor() {
     let result = { x: 0, y: 0, visible: false };
@@ -228,7 +200,10 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
     // Keep the preview trajectory fixed. The launch camera never rebuilds orbital geometry.
     transitEph.update(launchH);
     const localUp = v(Math.cos(.499)*Math.cos(-1.407), Math.sin(.499), -Math.cos(.499)*Math.sin(-1.407));
-    const worldUp = localUp.clone().applyQuaternion(transitEph.earthRot), toLaunch = new T.Quaternion().setFromUnitVectors(worldUp, v(0,1,0));
+    const worldUp = localUp.clone().applyQuaternion(transitEph.earthRot);
+    const east = v(-Math.sin(-1.407), 0, -Math.cos(-1.407)).applyQuaternion(transitEph.earthRot);
+    const south = v().crossVectors(east, worldUp).normalize();
+    const toLaunch = new T.Quaternion().setFromRotationMatrix(new T.Matrix4().makeBasis(east, worldUp, south)).invert();
     horizonEarth.quaternion.copy(toLaunch).multiply(transitEph.earthRot); localEarth.quaternion.copy(horizonEarth.quaternion); horizonClouds.quaternion.copy(horizonEarth.quaternion);
     ascentSun.copy(transitEph.sunDir).applyQuaternion(toLaunch);
     setVisible(true); applyPose(padPose()); flames.visible = true; publishAnchor(); lastTick = 0;
@@ -241,41 +216,50 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
     if (dive) dive.to = padPose(); else if (!flight) applyPose(stage === 'pad' ? padPose() : orbitPose());
     lastAnchor = ''; publishAnchor();
   }
-  const ascentPosition = v(), direction = v(), focus = v(), cameraOffset = v();
+  const ascentPosition = v(), direction = v(), vertical = v(0,1,0);
   function renderFlight(now) {
     const current = flight, p = flightPreview ?? clamp((now-current.start)/current.duration,0,1), s = p*9.5;
     let phase, altitude = 0;
+    let ascentSample = null;
     if (p < .9) {
-      // Compressed ascent: centimetres-to-metres near the tower, then cloud decks and orbital altitude.
-      const u = clamp((p-.045)/.805,0,1);
-      altitude = 200000 * Math.pow(u,3.35);
-      const pitch = smooth((u-.22)/.78)*.52;
-      ascentPosition.set(altitude*.14*smooth(u/.7), altitude, -altitude*.045);
-      launch.rocket.position.copy(ascentPosition); launch.rocket.rotation.z = -pitch;
-      direction.set(Math.sin(pitch),Math.cos(pitch),0);
-      const follow = smooth((p-.04)/.17), initial = padPose();
-      cameraOffset.copy(initial.p).lerp(v(95,50,210),follow);
-      camera.position.copy(ascentPosition).add(cameraOffset); focus.copy(ascentPosition).addScaledVector(direction,53);
-      target.copy(initial.t).add(ascentPosition).lerp(focus,follow); camera.up.set(0,1,0); camera.lookAt(target);
-      if (altitude > 250 && launch.rocket.parent !== ascent) ascent.add(launch.rocket);
-      const isHigh = launch.rocket.parent === ascent;
+      ascentSample = sampleAscent(p, { reducedMotion: reduced, aspect: width / height });
+      altitude = ascentSample.altitudeM;
+      ascentPosition.fromArray(ascentSample.positionM);
+      direction.fromArray(ascentSample.direction);
+      const isHigh = ascentSample.shot !== 'ground';
+      if (isHigh && launch.rocket.parent !== ascent) ascent.add(launch.rocket);
+      launch.rocket.position.copy(ascentPosition);
+      launch.rocket.quaternion.setFromUnitVectors(vertical, direction);
       pad.visible = !isHigh; ascent.visible = isHigh; space.visible = false;
-      if (isHigh) {
-        scene.fog = null; camera.far = 18000000; camera.updateProjectionMatrix();
-        sky.position.copy(camera.position); sky.material.uniforms.air.value = 1-smooth((altitude-14000)/70000);
-        cloudPuffs.visible = altitude < 30000; horizonClouds.visible = altitude > 14000;
-        stars.position.copy(camera.position); stars.material.opacity = smooth((altitude-35000)/75000)*.6;
-        sun.position.copy(ascentPosition).addScaledVector(ascentSun,10000); sun.target.position.copy(ascentPosition);
-        ascentAmbient.intensity = 1.2 - smooth(altitude/130000)*.7;
+      environment.group.visible = true;
+      camera.position.copy(ascentPosition).add(v(...ascentSample.camera.offsetM));
+      target.copy(ascentPosition).add(v(...ascentSample.camera.targetOffsetM));
+      camera.up.set(0,1,0); camera.lookAt(target);
+      const fov = ascentSample.camera.fov;
+      if (camera.fov !== fov || camera.far !== 18000000) {
+        camera.fov = fov; camera.far = 18000000; camera.updateProjectionMatrix();
       }
-      flames.visible = true; flameMat.uniforms.time.value = now/1000; flames.scale.y = reduced ? 1 : 1 + Math.sin(now*.031)*.06;
-      if (p < .24) for (const puff of smoke) {
+      // Distant surface contrast disappears into the same atmospheric horizon as the sky.
+      const air = Math.exp(-Math.max(0, altitude)/19000);
+      const day = smooth((ascentSun.y + .12)/.32);
+      const rimBlend = smooth((altitude-11000)/21000), light = .17+.83*day;
+      ascentFog.color.setRGB(((.58+(.09-.58)*rimBlend)*Math.sqrt(air)*.88 + (.001+(.035-.001)*air)*.12)*light, ((.71+(.29-.71)*rimBlend)*Math.sqrt(air)*.88 + (.003+(.19-.003)*air)*.12)*light, ((.82+(.62-.82)*rimBlend)*Math.sqrt(air)*.88 + (.008+(.42-.008)*air)*.12)*light);
+      ascentFog.density = Math.max(.000003, .000025 * Math.exp(-altitude/6000));
+      scene.fog = ascentFog;
+      horizonClouds.visible = false;
+      stars.material.opacity = 0;
+      sun.position.copy(ascentPosition).addScaledVector(ascentSun,10000); sun.target.position.copy(ascentPosition);
+      ascentAmbient.intensity = .85;
+      environment.update({ altitude, position: ascentPosition, camera, time: now / 1000 });
+      flames.visible = true;
+      exhaust.update({ time: now / 1000, altitude, ...ascentSample.plume });
+      if (!isHigh) for (const puff of smoke) {
         const age = Math.max(0,s-puff.userData.delay), distance = age*puff.userData.speed;
         puff.position.set(Math.cos(puff.userData.angle)*distance,3+age*3,Math.sin(puff.userData.angle)*distance);
-        puff.scale.setScalar(10+age*17); puff.material.opacity = Math.min(.6,age*.3);
+        puff.scale.setScalar(10+age*17); puff.material.opacity = Math.min(.75,age*.4);
       }
-      phase = altitude < 700 ? 'IGNITION & LIFTOFF' : altitude < 12000 ? 'ASCENDING THROUGH CLOUDS' : altitude < 80000 ? 'ABOVE THE CLOUDS' : 'EARTH HORIZON · TIME COMPRESSED';
-      veil.material.uniforms.opacity.value = smooth((p-.85)/.05);
+      phase = ascentSample.phase;
+      veil.material.uniforms.opacity.value = ascentSample.blackout;
     } else {
       if (ascent.visible || pad.visible) { setVisible(false); sun.position.copy(sunDirection).multiplyScalar(500); sun.target.position.set(0,0,0); }
       const near = arrivalPose(), a = smooth((p-.9)/.1);
@@ -283,8 +267,8 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
       veil.material.uniforms.opacity.value = 1-smooth((p-.9)/.035); phase = 'LUNAR APPROACH · TIME COMPRESSED';
     }
     // Most of the film follows ascent; the final dissolve advances the cruise interval.
-    const ascentH = Math.min(current.arriveH, current.launchH + .25);
-    const h = p < .9 ? current.launchH + (ascentH-current.launchH)*(p/.9) : ascentH + (current.arriveH-ascentH)*((p-.9)/.1);
+    const ascentH = Math.min(current.arriveH, current.launchH + 120/3600);
+    const h = p < .9 ? Math.min(current.arriveH, current.launchH + ascentSample.elapsedS/3600) : ascentH + (current.arriveH-ascentH)*((p-.9)/.1);
     if (now-lastTick > 90 || p===1) { current.onTick?.(h,{progress:p,phase,altitudeKm:p<.9?altitude/1000:null}); lastTick=now; }
     if (p === 1) completeFlight();
   }
@@ -303,7 +287,11 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
     }
     if (flight) renderFlight(now);
     else if (stage==='orbit' && !dive) { applyPose(orbitPose(now)); globeClouds.quaternion.copy(earth.quaternion).multiply(new T.Quaternion().setFromAxisAngle(v(0,1),Math.sin(now*.000025)*.055)); }
-    if (pad.visible) launch.animate(now,flight?(now-flight.start)/1000:null);
+    if (pad.visible) {
+      launch.animate(now,flight?(now-flight.start)/1000:null);
+      if (flight) renderer.shadowMap.needsUpdate = true;
+      if (!flight) environment.update({ altitude: 0, position: v(), camera, time: now/1000 });
+    }
     publishAnchor(); renderer.render(scene,camera); renderedFrames++;
     if (now-perfStart > 1000) {
       onPerformance?.({fps:renderedFrames*1000/(now-perfStart),drawCalls:renderer.info.render.calls,triangles:renderer.info.render.triangles,pixelRatio:renderer.getPixelRatio(),targetFps:active&&!reduced?60:30,stage});
@@ -317,7 +305,7 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
   }
   // Precompile the inexpensive visible preview; detailed launch shaders compile when selected.
   updateGeometry(Math.min(84,transitEph.maxH)); setVisible(false); resize(); renderer.compile(scene,camera);
-  onProgress?.({loaded:4,total:4,label:'Launch vehicle, cloud layers and Earth textures'});
+  onProgress?.({loaded:6,total:6,label:'Launch vehicle, cloud layers and Earth textures'});
   window.addEventListener('resize',resize); document.addEventListener('visibilitychange',visibilityChange);
   const observer=typeof ResizeObserver!=='undefined'?new ResizeObserver(resize):null;observer?.observe(canvas);
   frameId=requestAnimationFrame(render);
@@ -763,7 +751,7 @@ function createLaunchComplex(T) {
       geometries.forEach(g => g.dispose());
       if (!merged) continue;
       pieces.forEach(piece => parent.remove(piece));
-      parent.add(new T.Mesh(merged, mat));
+      const combined = new T.Mesh(merged, mat); combined.castShadow = combined.receiveShadow = true; parent.add(combined);
     }
   }
   mergeRigidPieces(group);

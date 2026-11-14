@@ -1,0 +1,22 @@
+NASA Earth Observatory visual assets used by P2
+
+Earth surface: Blue Marble Next Generation, June 2004 composite, 5400 x 2700.
+https://science.nasa.gov/earth/earth-observatory/blue-marble-next-generation/base-map/
+https://assets.science.nasa.gov/content/dam/science/esd/eo/images/bmng/bmng-base/june/world.200406.3x5400x2700.jpg
+Credit: NASA Earth Observatory; Reto Stockli.
+
+Global clouds: Blue Marble (2002), cloud composite, 2048 x 1024.
+https://science.nasa.gov/earth/earth-observatory/the-blue-marble-true-color-global-imagery-at-1km-resolution/
+https://assets.science.nasa.gov/content/dam/science/esd/eo/content-feature/bluemarble/images/cloud_combined_2048.jpg
+Credit: NASA Goddard Space Flight Center; Reto Stockli and Robert Simmon.
+
+Cape Canaveral: EO-1 Advanced Land Imager, June 9, 2002.
+https://science.nasa.gov/earth/earth-observatory/apollo-11-launch-pad-39376/
+https://assets.science.nasa.gov/dynamicimage/assets/science/esd/eo/images/imagerecords/39000/39376/canaveral_ali_2002160_lrg.jpg
+Credit: NASA Earth Observatory; Robert Simmon, using ALI data distributed by USGS.
+
+These are historical visual reference composites, not weather forecasts or
+current imagery for the selected mission date. The launch landscape is a
+presentation backdrop, not a surveyed reconstruction. Procedural local cloud
+and exhaust textures are original artwork informed by NASA launch imagery.
+Original project files in src/data/ remain unchanged.
