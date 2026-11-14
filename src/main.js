@@ -724,6 +724,29 @@ async function boot() {
   // P2, mission framing. Shows #mission, calls mission.ready(cfg) when the launch ends.
   {
     // P2 wires up here
+    if (!(import.meta.env.DEV && new URLSearchParams(location.search).has('trim'))) {
+      const { createMission } = await import('./mission.js');
+      const missionFlow = createMission({
+        eph,
+        data,
+        onMissionReady(config) {
+          const hasSelection = typeof mission.handler === 'function';
+          hud.hideScreen('mission');
+          syncScene(config.arriveH);
+          mission.ready(config);
+          // The host remains in home mode behind P2, so go('home') can be a no-op.
+          if (!hasSelection && mode === 'home') {
+            refreshLive(config.arriveH);
+            hud.showHome();
+            hud.focusEnter();
+          }
+          if (import.meta.env.DEV) console.info('P2 mission ready', JSON.stringify(config));
+        },
+      });
+      hud.hideHome();
+      hud.showScreen('mission');
+      missionFlow.ready.catch(error => console.error('Mission setup failed', error));
+    }
   }
 
   // P1, moon-surface site selection. Shows #select, receives cfg through mission.onMission.
