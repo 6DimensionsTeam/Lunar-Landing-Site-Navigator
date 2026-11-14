@@ -829,15 +829,34 @@ async function boot() {
     // selector actually needs (sun, Earth link, longest dark spell), from the full-resolution
     // horizon profile in sites.json rather than the 480 m zone grid (see zones.js's own note
     // on why the two can disagree at a site on a sharp ridge).
+    //
+    // Which year's figures: sun and Earth visibility genuinely move year to year (the 18.6 yr
+    // lunar nodal cycle), so a site picked before the mission's arrival year is known shows
+    // the whole-window average (stats); once it is known, this rebuilds against that year's
+    // stats_by_year entry instead. The zone classification itself (shadow, prime, slope) is
+    // not part of this: it describes the shape of the ground, not a moment in time, and the
+    // source data behind it is a fixed observation period, not something to date-pick against.
     const siteListHost = document.getElementById('sel-site-list');
-    for (const s of data.sites.sites) {
-      const row = document.createElement('div');
-      row.innerHTML = `<dt><i></i>${s.en}</dt><dd>${s.stats.sun_visible_pct.toFixed(1)}% sun · ${s.stats.earth_visible_pct.toFixed(1)}% link</dd>`;
-      row.querySelector('i').textContent = s.id;
-      row.addEventListener('click', () => globe.flyToSite(s));
-      row.style.cursor = 'pointer';
-      siteListHost.appendChild(row);
+    const siteListYear = document.getElementById('sel-site-year');
+    function statsFor(s, year) {
+      return (year != null && s.stats_by_year[String(year)]) || s.stats;
     }
+    function buildSiteList(year) {
+      siteListHost.textContent = '';
+      // Say which figures these are. Without the year the reader cannot tell an average
+      // from a specific year's, and the two differ by several points at these sites.
+      siteListYear.textContent = year != null ? ` ${year}` : ` ${eph.startYear}–${eph.endYear} MEAN`;
+      for (const s of data.sites.sites) {
+        const st = statsFor(s, year);
+        const row = document.createElement('div');
+        row.innerHTML = `<dt><i></i>${s.en}</dt><dd>${st.sun_visible_pct.toFixed(1)}% sun · ${st.earth_visible_pct.toFixed(1)}% link</dd>`;
+        row.querySelector('i').textContent = s.id;
+        row.addEventListener('click', () => globe.flyToSite(s));
+        row.style.cursor = 'pointer';
+        siteListHost.appendChild(row);
+      }
+    }
+    buildSiteList(null);
 
     const tip = document.getElementById('sel-tip');
     const tipZone = document.getElementById('sel-tip-zone');
@@ -918,9 +937,19 @@ async function boot() {
       hud.hideScreen('select');
     }
 
-    mission.onMission(() => show());
+    // The arrival time is what makes the site figures specific rather than an average, so it
+    // is read here rather than ignored. Clamped into the ephemeris range: a date control that
+    // let the user off the end of it would otherwise index a year that has no entry.
+    mission.onMission((cfg) => {
+      if (cfg && Number.isFinite(cfg.arriveH)) {
+        const y = eph.hoursToDate(THREE.MathUtils.clamp(cfg.arriveH, 0, eph.maxH)).getUTCFullYear();
+        buildSiteList(THREE.MathUtils.clamp(y, eph.startYear, eph.endYear));
+      }
+      show();
+    });
     // Reachable before P2 exists, for development
     window.__lln_showGlobe = show;
+    window.__lln_setYear = buildSiteList;
     window.__lln_hideGlobe = hide;
     window.__lln_globe = globe;
   }

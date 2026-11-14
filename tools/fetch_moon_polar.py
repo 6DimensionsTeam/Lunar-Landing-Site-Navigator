@@ -114,10 +114,15 @@ def main():
 
     scale_m = 2 * HALF_M / h.shape[0]
     shade = hillshade(h, scale_m)
-    # Gamma below 1 opens up the shadow end, where most of this terrain sits once it is lit
-    # from 35 deg, and the range stays off both extremes: the zone tint is composited over
-    # this, and tinting pure white or pure black loses the colour either way.
-    img = (0.2 + 0.72 * shade ** 0.85) * 255
+    # Match the level of the WAC mosaic band this replaces, or the cap reads as a white disc
+    # pasted onto a darker sphere and the cross-fade edge shows however wide it is made. That
+    # band (lat -90 to -75 of src/data/moon_global.jpg) averages about 57/255, so the output
+    # is centred there. Contrast is kept well below what the hillshade alone would give: this
+    # sits under the live lighting pass and the zone tint, and both need headroom.
+    TARGET_MEAN, CONTRAST = 57.0 / 255.0, 0.30
+    s = shade ** 0.85
+    s = (s - s.mean()) / max(s.std(), 1e-6)          # normalise, then place deliberately
+    img = np.clip(TARGET_MEAN + s * CONTRAST * TARGET_MEAN, 0.0, 1.0) * 255
 
     OUT.mkdir(parents=True, exist_ok=True)
     f = OUT / "moon_spole_relief.jpg"

@@ -54,13 +54,16 @@ export function createGlobe({ renderer, data, zones, radiusKm }) {
     uZoneSel: { value: 0 },
     uZoneDim: { value: 0.22 },
     uSunDir: { value: new THREE.Vector3(1, 0, 0) },
-    // This is a navigational globe, not a photo. At the mission epoch the Sun sits 1.7-3 deg
-    // above the pole's horizon, so a physically honest fill would leave almost the whole body
-    // pure black with one hard-edged sliver lit -- correct, and useless for finding your way
-    // around. The fill is lifted until the night side still reads as terrain, and the
-    // terminator widened so it falls off as a gradient rather than a cut edge.
-    uAmbient: { value: 0.46 },
-    uTerm: { value: 0.3 },
+    // This view is a map, not a photograph, and it is lit for reading rather than for the
+    // date. A physically placed Sun makes the thing unusable: the mission window runs over
+    // fourteen years, and for most arrival dates in it the south pole faces away from the
+    // Sun, so picking a date would hand the user an unreadable black sphere. The arrival
+    // date drives the figures in the panels, where it belongs, and the relief itself (baked
+    // as a hillshade in the polar basemap, see tools/fetch_moon_polar.py) carries the shape
+    // cue, so the live Sun term only has to avoid erasing it -- ambient near 1 means the
+    // day/night term barely moves the result either way.
+    uAmbient: { value: 0.88 },
+    uTerm: { value: 0.9 },
   };
 
   const sphere = new THREE.Mesh(
