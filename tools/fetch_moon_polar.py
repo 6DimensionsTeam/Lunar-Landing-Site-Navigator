@@ -119,7 +119,10 @@ def main():
     # band (lat -90 to -75 of src/data/moon_global.jpg) averages about 57/255, so the output
     # is centred there. Contrast is kept well below what the hillshade alone would give: this
     # sits under the live lighting pass and the zone tint, and both need headroom.
-    TARGET_MEAN, CONTRAST = 57.0 / 255.0, 0.30
+    # CONTRAST is set so this lands near the contrast the mosaic keeps after the shader
+    # compresses it (0.55 of a 56.5/255 standard deviation, so about 31/255). Matching the
+    # mean alone left the cap reading as a flat disc on a mottled surface.
+    TARGET_MEAN, CONTRAST = 57.0 / 255.0, 0.55
     s = shade ** 0.85
     s = (s - s.mean()) / max(s.std(), 1e-6)          # normalise, then place deliberately
     img = np.clip(TARGET_MEAN + s * CONTRAST * TARGET_MEAN, 0.0, 1.0) * 255

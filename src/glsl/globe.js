@@ -24,6 +24,8 @@ void main() {
 export const globeFrag = /* glsl */ `
 precision highp float;
 uniform sampler2D uMap;        // WAC mosaic, equirectangular
+uniform float uMapMean;        // the mosaic's own mean level, the point contrast pulls toward
+uniform float uMapFlat;        // how much of the mosaic's contrast to keep, 1 for all of it
 uniform sampler2D uPolar;      // slope-shaded relief, south polar stereographic
 uniform float uPolarE;         // half extent of uPolar, km
 uniform sampler2D uZones;      // zone classes, RGBA, nearest filtered
@@ -60,6 +62,16 @@ void main() {
   float lat = (vUv.y - 0.5) * 180.0;
   float lon = vUv.x * 360.0;
   float albedo = texture(uMap, vec2(fract(vUv.x + 0.5), vUv.y)).r;
+
+  // The mosaic and the polar basemap had the same average brightness but not remotely the
+  // same local contrast -- the mosaic's standard deviation over the band the basemap
+  // replaces was 56/255 against the basemap's 17 -- so the cap read as a flat grey disc laid
+  // on a mottled surface and the seam showed wherever the two met. Matching the mean was not
+  // enough; the character had to match too. The mosaic is pulled towards its own mean here
+  // and the basemap was given more contrast at the source, so the two meet in the middle.
+  // The harsh end of that contrast is grazing-illumination shadow in the source imagery, not
+  // terrain this map needs, so compressing it costs nothing a site selector would use.
+  albedo = mix(uMapMean, albedo, uMapFlat);
 
   // Near the pole every longitude converges on one texel row of that same equirectangular
   // map, so a camera close enough to read the zone cap sees that row smeared across the
