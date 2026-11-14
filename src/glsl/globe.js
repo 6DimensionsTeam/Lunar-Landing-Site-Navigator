@@ -108,11 +108,12 @@ void main() {
       // Fade the overlay out over the last 8 km so the cap has no cut edge
       float edgeFade = 1.0 - smoothstep(uZoneE - 8.0, uZoneE, max(abs(m.x), abs(m.y)));
       a *= edgeFade;
-      // Keep the relief visible through the tint: the zone colour is laid over a base that
-      // still carries the local brightness, lifted off zero so a shadowed crater floor
-      // reads as blue rather than as black. Without the lift the darkest ground, which is
-      // the ground this map most needs to label, would show no colour at all.
-      float groundRelief = 0.35 + 0.65 * albedo;
+      // Keep the relief visible through the tint without letting it dictate the colour. The
+      // basemap is levelled to the dark lunar regolith it depicts (mean about 57/255), so a
+      // tint multiplied straight into it comes out nearly black -- and the classes are the
+      // point of this screen. The lift dominates and the albedo only modulates, so a crater
+      // floor still reads as blue while its rim shading stays visible through it.
+      float groundRelief = 0.78 + 0.5 * albedo;
       col = mix(col, z.rgb * groundRelief, a);
 
       // No contour is drawn here. An earlier version outlined every class boundary, which

@@ -647,6 +647,15 @@ body {
 .legend-rows dt { display: flex; align-items: center; gap: 0.6em; }
 .legend-rows .swatch { display: inline-block; width: 0.9em; height: 0.9em; border: 1px solid var(--line-hi); flex: none; }
 #select .cta-stack { justify-self: center; align-self: end; gap: 0.6em; }
+/* The title block on this screen sits over lit terrain rather than over sky, where the
+   text shadow the other screens rely on is not enough on its own. A flat translucent
+   black panel behind it, the same one the dock panels use, rather than a heavier scrim. */
+#select .ttl {
+  padding: 0.9em 1.2em 1em;
+  padding-left: 1.5em;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0.45) 72%, transparent);
+}
+#select .ttl-d { color: var(--fg); }
 /* site chip over the globe: identical to the home screen's own .site marker, so the two
    views read as one survey rather than a 3D viewport bolted on next to a 2D one */
 #sel-sites { position: absolute; inset: 0; pointer-events: none; }
