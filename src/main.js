@@ -13,6 +13,7 @@ import { createRig } from './rig.js';
 import { createHud, reducedMotion } from './hud.js';
 import { createStation, STATION, CORE_TRIM } from './scene/station.js';
 import { createRover } from './scene/rover.js';
+import { createZones } from './zones.js';
 
 // Home-screen epoch: 2028-09-29 12:00 UTC. Seen from Shackleton, Earth (a 15%-lit crescent) and the Sun both stand only 1.7–3° above the horizon,
 // about 45° apart in azimuth, straddling the south polar ridge. The clock then runs forward at real speed.
@@ -85,6 +86,7 @@ async function boot() {
     hero: ['Decode polar terrain, LOLA 40 m', (m) => `${m.size}² grid`],
     inner: ['Decode inner terrain, LOLA 120 m', (m) => `${m.size}² grid`],
     outer: ['Decode outer terrain, LOLA 480 m', (m) => `${m.size}² grid`],
+    zones: ['Decode landing zones, LOLA + Diviner', (m) => `${m.size}² at ${m.cell_m} m`],
     ephem: ['Load ephemeris, JPL DE421', (m) => `${m.count} samples · ${m.step_hours} h`],
   };
   const order = Object.keys(steps);
@@ -670,6 +672,12 @@ async function boot() {
   await B.finish();
   hud.showHome();
 
+  // P0, landing zones. Built here because P1 and P3 both read it: P1 colours the
+  // surface with zones.texture() and shows zones.at() on hover, P3 scores a site with
+  // the same values. A cell is 480 m, so these are area characteristics; precise
+  // per-site figures stay in sites.json.
+  const zones = createZones(data.zones, data.zonesMeta);
+
   // ---- Mount points for work in progress ----
   // One block per work package. Each package imports its own module and wires it up
   // inside its own block, so three people can add code here without landing on the
@@ -706,7 +714,7 @@ async function boot() {
 
   // Debug entry point
   const setTime = (h, rate = 0) => { clock.epochH = h; clock.t0 = performance.now(); clock.rate = rate; lastLit = null; };
-  window.__lln = { THREE, camera, controls, terrain, shadows, sky, bodies, post, eph, data, renderer, rig, sites, crater, station, rover, clock, setTime, groundAt, heightAt, go, enterRover, leaveRover, keys, get mode() { return mode; } };
+  window.__lln = { THREE, camera, controls, terrain, shadows, sky, bodies, post, eph, data, renderer, rig, sites, zones, crater, station, rover, clock, setTime, groundAt, heightAt, go, enterRover, leaveRover, keys, get mode() { return mode; } };
   // Core alignment trim panel: hidden entry, appears only in dev mode when the URL carries ?trim, and flies straight to the relay station on load (code kept for later calls).
   // Readings are absolute trims relative to CORE_Q, starting from CORE_TRIM in station.js; copy tuned values back into CORE_TRIM
   const trimQuery = new URLSearchParams(location.search).has('trim');

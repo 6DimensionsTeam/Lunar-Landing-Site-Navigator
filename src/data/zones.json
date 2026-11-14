@@ -1,0 +1,76 @@
+{
+ "size": 632,
+ "half_extent_m": 151680.0,
+ "cell_m": 480.0,
+ "radius_m": 1737400.0,
+ "planes": [
+  "class",
+  "slope_deg",
+  "sun",
+  "earth",
+  "tmax_k",
+  "ice_dist_m"
+ ],
+ "encoding": "zlib over planes, each row-predicted (value minus the cell to its left, wrapped to int8)",
+ "scales": {
+  "slope_deg": {
+   "lo": 0.0,
+   "hi": 64.0,
+   "levels": 128,
+   "step": "0.5\u00b0"
+  },
+  "sun": {
+   "lo": 0.0,
+   "hi": 1.0,
+   "levels": 101,
+   "step": "1%"
+  },
+  "earth": {
+   "lo": 0.0,
+   "hi": 1.0,
+   "levels": 101,
+   "step": "1%"
+  },
+  "tmax_k": {
+   "lo": 40.0,
+   "hi": 320.0,
+   "levels": 141,
+   "step": "2 K"
+  },
+  "ice_dist_m": {
+   "lo": 0.0,
+   "hi": 128000.0,
+   "levels": 129,
+   "step": "1 km"
+  }
+ },
+ "zones": {
+  "unmapped": 0,
+  "ice": 1,
+  "prime": 2,
+  "sunlit": 3,
+  "flat": 4,
+  "rough": 5
+ },
+ "thresholds": {
+  "slope_flat_deg": 10.0,
+  "tmax_ice_k": 110.0,
+  "sun_quantile": 0.9,
+  "sun_cut": 0.3968,
+  "earth_link": 0.5
+ },
+ "share_pct": {
+  "ice": 4.03,
+  "prime": 0.85,
+  "sunlit": 9.15,
+  "flat": 49.02,
+  "rough": 36.95
+ },
+ "sources": {
+  "slope": "Slope_ldem_85s_20m_Spole_float_SP (LRO LOLA, 20 m)",
+  "sun": "AVGVISIB_85S_060M_201608_SP (LRO LOLA, 60 m, 18.6 yr mean)",
+  "earth": "AVGVISIB_85S_060M_201608_EARTH_SP (LRO LOLA, 60 m, 18.6 yr mean)",
+  "tmax": "diviner_tbol_max_SP (LRO Diviner)",
+  "citation": "Mazarico, E., et al. (2011), Illumination conditions of the lunar polar regions using LOLA topography, Icarus 211, 1066-1081, doi:10.1016/j.icarus.2010.10.030"
+ }
+}

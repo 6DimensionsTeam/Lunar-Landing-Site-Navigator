@@ -2,11 +2,13 @@
 import terrainMeta from './data/terrain.json';
 import ephemMeta from './data/ephem.json';
 import sitesMeta from './data/sites.json';
+import zonesMeta from './data/zones.json';
 import validation from './data/validation.json';
 import heroUrl from './data/terrain_hero.bin?inline';
 import innerUrl from './data/terrain_inner.bin?inline';
 import outerUrl from './data/terrain_outer.bin?inline';
 import ephemUrl from './data/ephem.bin?inline';
+import zonesUrl from './data/zones.bin?inline';
 import starsUrl from './data/stars.bin?inline';
 import earthDayUrl from './data/earth_day.jpg?inline';
 import earthNightUrl from './data/earth_night.jpg?inline';
@@ -54,6 +56,8 @@ export async function loadAll(onProgress = () => {}) {
     tiles[key] = { ...meta, heights: decodeHeights(raw, meta.size, terrainMeta.dn_scale_m) };
     onProgress(key, meta);
   }
+  const zones = await inflate(await bytes(zonesUrl));
+  onProgress('zones', { size: zonesMeta.size, cell_m: zonesMeta.cell_m });
   const eph = await bytes(ephemUrl);
   const ephem = new Float32Array(eph.buffer, eph.byteOffset, eph.byteLength / 4);
   const st = await bytes(starsUrl);
@@ -67,6 +71,8 @@ export async function loadAll(onProgress = () => {}) {
     stars,
     starCount: st.byteLength / 8,
     sites: sitesMeta,
+    zones,
+    zonesMeta,
     validation,
     earthDayUrl,
     earthNightUrl,

@@ -45,9 +45,20 @@ URL flags (development only):
 | [JPL DE421](https://ssd.jpl.nasa.gov/planets/eph_export.html) | Sun and Earth ephemeris, 2026–2040 | `src/data/ephem.bin`, 3 h steps |
 | [NASA 3D Resources — Gateway Core](https://github.com/nasa/NASA-3D-Resources) | relay station core modules | `src/data/station.glb` |
 | [Space ROS `lunar_pole_exploration_rover`](https://github.com/space-ros) | rover mesh and joints | Apache-2.0, see the rover credit line in the UI |
+| [LOLA slope](https://trek.nasa.gov/moon/) `Slope_ldem_85s_20m_Spole_float_SP` | landing-zone slope | 20 m, same DEM as the terrain |
+| [LOLA average visibility](https://trek.nasa.gov/moon/) `AVGVISIB_85S_060M_201608_SP` and `_EARTH_SP` | zone sunlight and Earth link | 60 m, 18.6-year mean |
+| [Diviner](https://trek.nasa.gov/moon/) `diviner_tbol_max_SP` | cold-trap classification | ice is stable below about 110 K |
 
 Horizon profiles are validated against JPL Horizons (`tools/validate_horizons.py`); site statistics are
-cross-checked in rank order against NASA's PGDA polar illumination maps.
+cross-checked in rank order against NASA's PGDA polar illumination maps and against the LOLA average
+Earth visibility product.
+
+The landing-zone map (`tools/fetch_zones.py`, then `tools/prep_zones.py`) classifies the region into
+cold traps, prime ground, sunlit, flat and rough, on the same projection and extent as the inner
+terrain tile. A cell is 480 m, so a zone value is an area characteristic; per-site figures come from
+the full-resolution horizon profiles instead. Using LOLA and Diviner requires citing
+Mazarico, E., et al. (2011), *Illumination conditions of the lunar polar regions using LOLA
+topography*, Icarus 211, 1066-1081, doi:10.1016/j.icarus.2010.10.030.
 
 ## Repository layout
 
@@ -57,7 +68,7 @@ src/main.js           app wiring, modes, render loop
 src/scene/            terrain, sky, bodies, station, rover, shadow, post
 src/glsl/             terrain, haze and near-field shaders
 src/data/             generated data (ephemeris, terrain, meshes)
-tools/                offline processing: DEM prep, ephemeris, horizon profiles, validation
+tools/                offline processing: DEM prep, ephemeris, horizon profiles, zones, validation
 ```
 
 `tools/` requires Python with numpy, scipy and skyfield; the raw DEMs and the DE421 SPK go in
