@@ -30,7 +30,7 @@ export function buildMissionConfig(eph, { arriveH, stayH, needs = {} }) {
   }
   const maxDarkH = needs.maxDarkH ?? 72;
   if (!Number.isFinite(maxDarkH) || maxDarkH < 0) throw new RangeError('Maximum darkness must be zero or more hours.');
-  // 84 hours is an illustrative transfer duration, not an orbit solution.
+  // 84 hours is the assumed flight time used by the transfer estimate, not an optimized launch window.
   // A departure near the dataset start is shortened to keep animation samples in range.
   return {
     arriveH,
@@ -56,9 +56,9 @@ const styles = `
 #mission .p2-cta{width:100%;display:grid;gap:10px;justify-items:center;padding:18px 20px 15px;background:#000a;border:1px solid #e2200fbf;box-shadow:inset 3px 0 var(--p2-red),inset -3px 0 var(--p2-red);transition:background .2s}#mission .p2-cta:hover:enabled{background:var(--p2-red)}#mission .p2-cta b{font-size:21px;font-weight:700;letter-spacing:.12em}#mission .p2-cta span{font-size:10px;letter-spacing:.22em}#mission .p2-intro-content .p2-cta{margin-top:18px}#mission .p2-window{display:flex;align-items:center;gap:12px;font-size:11px;color:#a5b1b9;margin:15px 0 0;letter-spacing:.04em}#mission .p2-window i{background:var(--p2-red);width:3px;height:3px}#mission .p2-error{font-size:12px;line-height:1.5;color:#ff8373;margin:10px 0}#mission .p2-error:empty{display:none}
 #mission .p2-terrain-tag{position:absolute;right:15%;bottom:24%;text-shadow:0 1px 6px black;display:grid;gap:6px;border-bottom:1px solid #fff6;padding:0 0 10px 20px}#mission .p2-terrain-tag:before{content:'+';position:absolute;left:0;top:-3px;font-size:20px}#mission .p2-terrain-tag b{font-size:12px;letter-spacing:.12em}#mission .p2-terrain-tag span{font-size:9px;color:#afbbc3;letter-spacing:.15em}
 #mission .p2-heading{position:absolute;left:var(--p2-pad);top:118px}#mission .p2-back{background:transparent;border:0;padding:0;color:#bec8cf;font-size:11px;margin-bottom:23px}#mission .p2-heading .p2-eyebrow{margin-bottom:14px}#mission .p2-heading h1{font-size:36px}#mission .p2-heading .p2-subtitle{margin-top:12px;font-size:9px}
-#mission .p2-launch-marker{position:absolute;z-index:5;text-align:left;background:#030708c9;border:1px solid #f2f4f56b;border-left:3px solid var(--p2-red);padding:11px 15px 10px 18px;transform:translate(-50%,10px);min-width:186px;backdrop-filter:blur(8px);box-shadow:0 6px 35px #0007}#mission .p2-launch-marker:before{content:'';position:absolute;width:9px;height:9px;background:var(--p2-red);border:1px solid white;left:var(--p2-anchor-x,50%);top:-16px;transform:translateX(-50%)}#mission .p2-launch-marker b{font-size:13px;letter-spacing:.12em;display:block;margin-bottom:5px}#mission .p2-launch-marker span{font-size:10px;letter-spacing:.05em;color:#bbc7cf}#mission .p2-launch-marker:hover{background:#e2200fdd;border-color:#ff9b88}#mission .p2-launch-marker:hover span{color:white}
+#mission .p2-launch-marker{position:absolute;z-index:5;text-align:left;background:#030708c9;border:1px solid #f2f4f56b;border-left:3px solid var(--p2-red);padding:11px 15px 10px 18px;transform:translate(-50%,92px);min-width:186px;backdrop-filter:blur(8px);box-shadow:0 6px 35px #0007}#mission .p2-launch-marker:before{content:'';position:absolute;width:9px;height:9px;background:var(--p2-red);border:1px solid white;left:var(--p2-anchor-x,50%);top:-99px;transform:translateX(-50%)}#mission .p2-launch-marker:after{content:'';position:absolute;left:var(--p2-anchor-x,50%);top:-90px;height:90px;border-left:1px solid #f2f4f570;pointer-events:none}#mission .p2-launch-marker b{font-size:13px;letter-spacing:.12em;display:block;margin-bottom:5px}#mission .p2-launch-marker span{font-size:10px;letter-spacing:.05em;color:#bbc7cf}#mission .p2-launch-marker:hover{background:#e2200fdd;border-color:#ff9b88}#mission .p2-launch-marker:hover span{color:white}
 #mission .p2-orbit-bottom{position:absolute;left:var(--p2-pad);right:var(--p2-pad);bottom:112px;display:flex;align-items:end;justify-content:space-between;gap:24px;pointer-events:none}#mission .p2-orbit-note{font-size:12px;letter-spacing:.06em;max-width:300px;color:#d8e0e5;line-height:1.6}#mission .p2-plan{width:430px;border-top:1px solid var(--p2-line);border-bottom:1px solid var(--p2-line);display:flex;justify-content:space-between;padding:17px 0;gap:18px}#mission .p2-plan div{display:grid;gap:7px}#mission .p2-plan small{font-size:9px;letter-spacing:.12em;color:#afbbc3}#mission .p2-plan b{font-size:24px;letter-spacing:.02em;font-weight:600}#mission .p2-plan em{color:var(--p2-red);font-style:normal;font-size:25px;align-self:center}#mission .p2-scale-note{position:absolute;left:var(--p2-pad);bottom:80px;font-size:9px;letter-spacing:.04em;color:#8d9ba4}
-#mission .p2-pad-heading{top:102px}#mission .p2-pad-heading h1{font-size:29px}#mission .p2-pad-heading .p2-back{margin-bottom:17px}#mission .p2-panel{background:#020609ce;border:1px solid #f2f4f544;backdrop-filter:blur(12px);position:relative}#mission .p2-panel:before,#mission .p2-panel:after{content:'';position:absolute;width:8px;height:8px;border:0 solid #f2f4f5b0;pointer-events:none}#mission .p2-panel:before{left:-1px;top:-1px;border-width:2px 0 0 2px}#mission .p2-panel:after{right:-1px;bottom:-1px;border-width:0 2px 2px 0}#mission .p2-panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--p2-line);padding:13px 17px;font-size:12px;letter-spacing:.1em}#mission .p2-panel-head small{font-size:8px;color:var(--p2-dim);letter-spacing:.15em}
+#mission .p2-model-details{position:absolute;right:var(--p2-pad);bottom:80px;font-size:10px;color:#bec8cf;max-width:360px;z-index:7}#mission .p2-model-details summary{cursor:pointer;text-align:right}#mission .p2-model-details p{position:absolute;bottom:18px;right:0;width:min(360px,85vw);padding:16px;border:1px solid #ffffff40;background:#05090ff2;line-height:1.65}#mission .p2-pad-heading{top:102px}#mission .p2-pad-heading h1{font-size:29px}#mission .p2-pad-heading .p2-back{margin-bottom:17px}#mission .p2-panel{background:#020609ce;border:1px solid #f2f4f544;backdrop-filter:blur(12px);position:relative}#mission .p2-panel:before,#mission .p2-panel:after{content:'';position:absolute;width:8px;height:8px;border:0 solid #f2f4f5b0;pointer-events:none}#mission .p2-panel:before{left:-1px;top:-1px;border-width:2px 0 0 2px}#mission .p2-panel:after{right:-1px;bottom:-1px;border-width:0 2px 2px 0}#mission .p2-panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid var(--p2-line);padding:13px 17px;font-size:12px;letter-spacing:.1em}#mission .p2-panel-head small{font-size:8px;color:var(--p2-dim);letter-spacing:.15em}
 #mission .p2-config{position:absolute;top:245px;left:var(--p2-pad);width:325px;max-height:calc(100% - 325px);overflow:auto;scrollbar-width:thin;scrollbar-color:#59646b #030609}#mission .p2-config form{padding:0 17px 17px}#mission .p2-config fieldset{margin:0;padding:18px 0;border:0;border-bottom:1px solid var(--p2-line);min-width:0}#mission .p2-config fieldset:last-of-type{border:0;padding-bottom:0}#mission .p2-config legend{float:left;width:100%;padding:0;display:flex;gap:8px;align-items:center;margin-bottom:13px;font-size:13px;color:#d3dbe0}#mission .p2-config legend b{font-size:12px;color:#f54b39}#mission .p2-config legend span{margin-left:auto;font-size:9px;color:#85949f;letter-spacing:.1em}#mission .p2-config label{font-size:12px;color:#c4cdd4}#mission .p2-input-row{display:flex;align-items:center;gap:12px;clear:both}#mission .p2-input-row input{min-width:0;width:100%;padding:8px 10px;background:#090e12;border:1px solid #ffffff37;font-size:20px;outline-offset:2px}#mission .p2-input-row span{font-size:11px;color:#9eacb6;min-width:28px}#mission .p2-field-note{font-size:10px;line-height:1.6;color:#8f9fa9;margin:9px 0 0;clear:both}#mission .p2-field-note b{font-weight:500;color:#c6d0d7}#mission .p2-shortcuts{display:flex;gap:6px;margin-top:10px}#mission .p2-shortcuts button{flex:1;border:1px solid #ffffff2b;background:#ffffff06;padding:7px;font-size:11px}#mission .p2-shortcuts button:hover{border-color:var(--p2-red)}#mission .p2-check{display:flex;align-items:center;gap:9px;margin:13px 0;clear:both;cursor:pointer}#mission .p2-check input{appearance:none;width:12px;height:12px;background:transparent;border:1px solid #8b9aa4;margin:0;cursor:pointer;display:grid;place-items:center}#mission .p2-check input:checked{background:var(--p2-red);border-color:var(--p2-red)}#mission .p2-check input:checked:after{content:'✓';font-size:10px;color:white}#mission .p2-check small{margin-left:auto;font-size:8px;letter-spacing:.06em;color:#84939e}#mission .p2-dark-label{display:flex;justify-content:space-between;margin:18px 0 8px}#mission .p2-dark-label small{font-size:9px;color:#85939d}
 #mission .p2-rocket-label{position:absolute;left:60%;top:27%;border-bottom:1px solid #fff5;padding:0 0 9px 18px;display:grid;gap:7px;text-shadow:0 2px 7px #000}#mission .p2-rocket-label:before{content:'+';position:absolute;left:0;top:-2px}#mission .p2-rocket-label b{font-size:14px;letter-spacing:.2em}#mission .p2-rocket-label small{font-size:9px;color:#b0bec8;letter-spacing:.15em}
 #mission .p2-launch-side{position:absolute;right:var(--p2-pad);bottom:110px;width:270px}#mission .p2-launch-side .p2-panel{margin-bottom:22px}#mission .p2-summary{margin:0;padding:16px 17px;display:grid;gap:17px}#mission .p2-summary div{display:grid;gap:5px}#mission .p2-summary dt{font-size:9px;color:var(--p2-dim);letter-spacing:.12em;text-transform:uppercase}#mission .p2-summary dd{margin:0;font-size:21px;line-height:1.2}#mission .p2-summary dd small{font-size:10px;color:#9daab4}#mission .p2-launch-side .p2-cta{background:#e2200f22;padding:20px}#mission .p2-launch-side .p2-cta:hover{background:var(--p2-red)}#mission .p2-launch-side .p2-cta b{font-size:28px;letter-spacing:.25em}#mission .p2-launch-disclaimer{font-size:10px;color:#8b9ba7;text-align:center;line-height:1.6;margin:11px 0 0}
@@ -79,9 +79,9 @@ const markup = `
 <div class="p2-shade" aria-hidden="true"></div><div class="p2-grid" aria-hidden="true"></div><div class="p2-frame" aria-hidden="true"></div>
 <header class="p2-header"><button class="p2-brand" data-ui="restart" aria-label="Restart mission planning"><b>LUNAR LANDING</b><small>SITE NAVIGATOR · DEPARTURE</small></button><div class="p2-header-line"></div><div class="p2-system"><span>PRE-FLIGHT SYSTEMS</span><b>LLN–02</b></div></header>
 <section id="mission-date" class="p2-stage" data-view="intro"><div class="p2-intro-content"><p class="p2-eyebrow"><b>PROLOGUE</b><span>THE JOURNEY BEGINS</span></p><h1 tabindex="-1">When do you want<br>to reach the Moon?</h1><p class="p2-subtitle">EVERY MISSION STARTS WITH A MOMENT.</p><form data-ui="arrival-form" novalidate><div class="p2-date-box"><label class="p2-date-label" for="p2-arrival-date">Arrival date <small>UTC · MISSION TIME</small></label><input class="p2-arrival" id="p2-arrival-date" data-ui="arrival-date" type="date" required><div class="p2-time-row"><button class="p2-link" data-ui="toggle-time" type="button" aria-expanded="false" aria-controls="p2-arrival-time-wrap">＋ Add a time <small>OPTIONAL</small></button><div class="p2-time-wrap" id="p2-arrival-time-wrap" data-ui="time-wrap" hidden><input data-ui="arrival-time" type="time" value="12:00" aria-label="Arrival time in UTC"><span>UTC</span></div></div></div><p class="p2-error" data-ui="arrival-error" role="alert"></p><button class="p2-cta" data-ui="plan" type="submit" disabled><b>Plan my journey</b><span>PREVIEW EARTH–MOON TRANSFER ↗</span></button></form><p class="p2-window"><span data-ui="window-label"></span><i></i><span>All times in UTC</span></p></div><div class="p2-terrain-tag" aria-hidden="true"><b>SHACKLETON · SOUTH POLE</b><span>LRO / LOLA · MEASURED TERRAIN</span></div></section>
-<section id="mission-space" class="p2-stage" data-view="orbit" hidden><div class="p2-heading"><button class="p2-back" data-ui="edit-date">← Edit arrival date</button><p class="p2-eyebrow"><b>02</b><span>EARTH–MOON SYSTEM</span></p><h1 tabindex="-1">A journey starts<br>with a departure.</h1><p class="p2-subtitle">ARRIVAL GEOMETRY · JPL DE421</p></div><button class="p2-launch-marker" data-ui="launch-marker" hidden><b>EARTH / LAUNCH SITE 01</b><span>Configure your mission ↗</span></button><div class="p2-orbit-bottom"><p class="p2-orbit-note">Select the marked launch site on Earth<br>to prepare your mission.</p><div class="p2-plan"><div><small>ILLUSTRATIVE DEPARTURE</small><b data-ui="orbit-launch"></b></div><em>→</em><div><small>PLANNED ARRIVAL</small><b data-ui="orbit-arrival"></b></div></div></div><p class="p2-scale-note">Trajectory and scale are illustrative. Arrival geometry comes from DE421 ephemeris.</p></section>
-<section id="mission-site" class="p2-stage" data-view="pad" hidden><div class="p2-heading p2-pad-heading"><button class="p2-back" data-ui="back-orbit">← Back to the Earth–Moon view</button><p class="p2-eyebrow"><b>03</b><span>LAUNCH COMPLEX 01</span></p><h1 tabindex="-1">Prepare for departure.</h1><p class="p2-subtitle">LUNAR HEAVY LIFT · FLIGHT READINESS</p></div><div class="p2-config p2-panel"><div class="p2-panel-head"><span>Mission configuration</span><small>PRE-FLIGHT</small></div><form data-ui="config-form" novalidate><fieldset><legend><b>01</b> Stay on the Moon <span>DURATION</span></legend><div class="p2-input-row"><input data-ui="stay-days" type="number" min="0.0416666667" step="any" value="7" aria-label="Planned stay in days"><span>days</span></div><div class="p2-shortcuts" role="group" aria-label="Stay duration presets"><button type="button" data-stay="24">24 hours</button><button type="button" data-stay="72">3 days</button><button type="button" data-stay="168">7 days</button></div><p class="p2-field-note">Mission ends <b data-ui="mission-end">—</b></p></fieldset><fieldset><legend><b>02</b> Mission requirements <span>OPTIONAL</span></legend><label class="p2-check"><input data-ui="crater-floor" type="checkbox"><span>Reach a crater floor</span><small>TERRAIN</small></label><label class="p2-check"><input data-ui="ice-nearby" type="checkbox"><span>Water ice nearby</span><small>RESOURCES</small></label><label class="p2-check"><input data-ui="continuous-comm" type="checkbox"><span>Continuous Earth link</span><small>COMMS</small></label><label class="p2-dark-label" for="p2-max-dark">Longest acceptable night <small>MAXIMUM</small></label><div class="p2-input-row"><input id="p2-max-dark" data-ui="max-dark" type="number" min="0" step="any" value="72"><span>hours</span></div><p class="p2-field-note">These requirements are passed to lunar site selection after arrival.</p></fieldset><p class="p2-error" data-ui="config-error" role="alert"></p></form></div><div class="p2-rocket-label" aria-hidden="true"><b>LUNAR HEAVY LIFT</b><small>CORE + TWIN SOLID BOOSTERS</small></div><div class="p2-launch-side"><section class="p2-panel"><div class="p2-panel-head"><span>Flight plan</span><small>UTC</small></div><dl class="p2-summary"><div><dt>Earth departure</dt><dd data-ui="summary-launch"></dd></div><div><dt>Lunar arrival</dt><dd data-ui="summary-arrive"></dd></div><div><dt>Surface mission</dt><dd data-ui="summary-stay"></dd></div><div><dt>Transfer duration</dt><dd data-ui="summary-transfer"></dd></div></dl></section><button class="p2-cta" data-ui="launch" disabled><b>LAUNCH</b><span>BEGIN LUNAR TRANSFER ↑</span></button><p class="p2-launch-disclaimer">8-second flight sequence · Skip at any time</p></div></section>
-<section id="mission-launch" class="p2-stage" data-view="flight" hidden><div class="p2-flight-heading"><p class="p2-eyebrow"><b>IN FLIGHT</b><span data-ui="flight-phase">IGNITION & ASCENT</span></p><h1 tabindex="-1">To the Moon.<br>Onward.</h1><p class="p2-subtitle">YOUR MISSION IS UNDERWAY.</p></div><button class="p2-skip" data-ui="skip">Skip to arrival ⏭</button><div class="p2-flight-clock"><span>MISSION CLOCK · UTC</span><time data-ui="flight-date"></time><div class="p2-flight-track"><i data-ui="flight-bar"></i></div><small><span>EARTH DEPARTURE</span><span>LUNAR ARRIVAL</span></small></div></section>
+<section id="mission-space" class="p2-stage" data-view="orbit" hidden><div class="p2-heading"><button class="p2-back" data-ui="edit-date">← Edit arrival date</button><p class="p2-eyebrow"><b>02</b><span>EARTH–MOON SYSTEM</span></p><h1 tabindex="-1">A journey starts<br>with a departure.</h1><p class="p2-subtitle">ARRIVAL GEOMETRY · JPL DE421</p></div><button class="p2-launch-marker" data-ui="launch-marker" hidden><b>EARTH / LAUNCH SITE 01</b><span>Configure your mission ↗</span></button><div class="p2-orbit-bottom"><p class="p2-orbit-note">Select the marked launch site on Earth<br>to prepare your mission.</p><div class="p2-plan"><div><small>PLANNED DEPARTURE</small><b data-ui="orbit-launch"></b></div><em>→</em><div><small>PLANNED ARRIVAL</small><b data-ui="orbit-arrival"></b></div></div></div><p class="p2-scale-note" data-ui="transfer-note">Two-body transfer estimate · 200 km parking orbit · DE421 arrival target · Bodies enlarged</p><details class="p2-model-details"><summary>Model assumptions</summary><p>The transfer is computed under Earth gravity from an assumed 200 km parking orbit to the DE421 lunar position. It excludes lunar and solar gravity, powered ascent, vehicle limits and lunar capture. The launch sequence compresses time for presentation.</p></details></section>
+<section id="mission-site" class="p2-stage" data-view="pad" hidden><div class="p2-heading p2-pad-heading"><button class="p2-back" data-ui="back-orbit">← Back to the Earth–Moon view</button><p class="p2-eyebrow"><b>03</b><span>LAUNCH COMPLEX 01</span></p><h1 tabindex="-1">Prepare for departure.</h1><p class="p2-subtitle">LUNAR HEAVY LIFT · FLIGHT READINESS</p></div><div class="p2-config p2-panel"><div class="p2-panel-head"><span>Mission configuration</span><small>PRE-FLIGHT</small></div><form data-ui="config-form" novalidate><fieldset><legend><b>01</b> Stay on the Moon <span>DURATION</span></legend><div class="p2-input-row"><input data-ui="stay-days" type="number" min="0.0416666667" step="any" value="7" aria-label="Planned stay in days"><span>days</span></div><div class="p2-shortcuts" role="group" aria-label="Stay duration presets"><button type="button" data-stay="24">24 hours</button><button type="button" data-stay="72">3 days</button><button type="button" data-stay="168">7 days</button></div><p class="p2-field-note">Mission ends <b data-ui="mission-end">—</b></p></fieldset><fieldset><legend><b>02</b> Mission requirements <span>OPTIONAL</span></legend><label class="p2-check"><input data-ui="crater-floor" type="checkbox"><span>Reach a crater floor</span><small>TERRAIN</small></label><label class="p2-check"><input data-ui="ice-nearby" type="checkbox"><span>Water ice nearby</span><small>RESOURCES</small></label><label class="p2-check"><input data-ui="continuous-comm" type="checkbox"><span>Continuous Earth link</span><small>COMMS</small></label><label class="p2-dark-label" for="p2-max-dark">Longest acceptable night <small>MAXIMUM</small></label><div class="p2-input-row"><input id="p2-max-dark" data-ui="max-dark" type="number" min="0" step="any" value="72"><span>hours</span></div><p class="p2-field-note">These requirements are passed to lunar site selection after arrival.</p></fieldset><p class="p2-error" data-ui="config-error" role="alert"></p></form></div><div class="p2-rocket-label" aria-hidden="true"><b>LUNAR HEAVY LIFT</b><small>CORE + TWIN SOLID BOOSTERS</small></div><div class="p2-launch-side"><section class="p2-panel"><div class="p2-panel-head"><span>Flight plan</span><small>UTC</small></div><dl class="p2-summary"><div><dt>Earth departure</dt><dd data-ui="summary-launch"></dd></div><div><dt>Lunar arrival</dt><dd data-ui="summary-arrive"></dd></div><div><dt>Surface mission</dt><dd data-ui="summary-stay"></dd></div><div><dt>Transfer duration</dt><dd data-ui="summary-transfer"></dd></div></dl></section><button class="p2-cta" data-ui="launch" disabled><b>LAUNCH</b><span>BEGIN LUNAR TRANSFER ↑</span></button><p class="p2-launch-disclaimer">9.5-second launch sequence · Skip at any time</p></div></section>
+<section id="mission-launch" class="p2-stage" data-view="flight" hidden><div class="p2-flight-heading"><p class="p2-eyebrow"><b>IN FLIGHT</b><span data-ui="flight-phase">IGNITION & ASCENT</span></p><h1 tabindex="-1">To the Moon.<br>Onward.</h1><p class="p2-subtitle">YOUR MISSION IS UNDERWAY.</p></div><button class="p2-skip" data-ui="skip">Skip to arrival ⏭</button><div class="p2-flight-clock"><span>MISSION CLOCK · UTC · TIME COMPRESSED</span><time data-ui="flight-date"></time><div class="p2-flight-track"><i data-ui="flight-bar"></i></div><small><span>EARTH DEPARTURE</span><span>LUNAR ARRIVAL</span></small></div></section>
 <footer class="p2-footer"><div class="p2-steps"><span data-step="intro" class="active"><b>01</b> Arrival date</span><i></i><span data-step="orbit"><b>02</b> Earth–Moon</span><i></i><span data-step="pad"><b>03</b> Launch</span><i></i><span data-step="flight"><b>04</b> Transit</span></div><span class="p2-footer-credit">NASA SPACE APPS / LUNAR LANDING SITE MISSION</span></footer>
 <section class="p2-boot" data-ui="boot" aria-label="System startup"><div class="p2-boot-box"><p class="p2-boot-head"><b>LLN</b> LUNAR MISSION SYSTEMS <span>P2 / DEPARTURE</span></p><ol class="p2-boot-log" data-ui="boot-log" aria-live="polite"></ol><div class="p2-boot-track"><i data-ui="boot-bar"></i></div><p class="p2-boot-foot"><span>INITIALIZING MISSION CONTROL</span><span data-ui="boot-percent">00%</span></p><p class="p2-error" data-ui="boot-error" role="alert"></p></div></section>
 `;
@@ -108,6 +108,29 @@ export function createMission({ eph, data, onMissionReady }) {
   const shortDate = h => isoDay(h).replaceAll('-', '.');
   const fullDate = h => eph.hoursToDate(h).toISOString().slice(0, 16).replace('T', ' ');
   const bootLines = new Set();
+  let transitPerformance = null, profileFrame = 0;
+  if (new URLSearchParams(location.search).has('perf')) {
+    const output = document.createElement('output');
+    output.setAttribute('aria-label', 'Rendering performance');
+    output.style.cssText = 'position:absolute;z-index:90;right:20px;bottom:72px;max-width:90vw;padding:8px;background:#000d;color:#fff;font:11px monospace;pointer-events:none';
+    root.append(output);
+    let start = 0, previous = 0, sampleStage = '', intervals = [];
+    const sample = t => {
+      if (disposed) return;
+      profileFrame = requestAnimationFrame(sample);
+      if (sampleStage !== stage) { sampleStage = stage; start = t; previous = t; intervals = []; }
+      if (previous && t - start > 1000) intervals.push(t - previous);
+      previous = t;
+      if (t - start < 5000) return;
+      const sorted = [...intervals].sort((a, b) => a - b);
+      const mean = intervals.reduce((a, b) => a + b, 0) / Math.max(1, intervals.length);
+      output.textContent = JSON.stringify({ stage, rafFps: Number((1000 / mean).toFixed(1)),
+        p95Ms: Number((sorted[Math.floor(sorted.length * .95)] ?? 0).toFixed(1)),
+        surfaceFps: Number(root.dataset.surfaceFps || 0), ...transitPerformance });
+      start = t; intervals = [];
+    };
+    profileFrame = requestAnimationFrame(sample);
+  }
 
   function bootLog(message, status = 'OK') {
     if (disposed || bootLines.has(message)) return;
@@ -157,7 +180,7 @@ export function createMission({ eph, data, onMissionReady }) {
       ui('summary-launch').innerHTML = `${shortDate(currentConfig.launchH)} <small>${fullDate(currentConfig.launchH).slice(11)} UTC</small>`;
       ui('summary-arrive').innerHTML = `${shortDate(arriveH)} <small>${fullDate(arriveH).slice(11)} UTC</small>`;
       ui('summary-stay').innerHTML = `${Number((currentConfig.stayH / 24).toFixed(3))} <small>days</small>`;
-      ui('summary-transfer').innerHTML = `${Number((arriveH - currentConfig.launchH).toFixed(2))} <small>hours · illustrative</small>`;
+      ui('summary-transfer').innerHTML = `${Number((arriveH - currentConfig.launchH).toFixed(2))} <small>hours · planned</small>`;
       ui('launch').disabled = !transit;
     } catch (error) {
       currentConfig = null;
@@ -171,6 +194,7 @@ export function createMission({ eph, data, onMissionReady }) {
     completed = true;
     // The host owns its clock and screen transitions at this boundary.
     stage = 'handoff';
+    root.dataset.stage = stage;
     ui('transit').hidden = true;
     if (!existing) root.hidden = true;
     root.dispatchEvent(new CustomEvent('missionstagechange', { bubbles: true, detail: { stage } }));
@@ -181,6 +205,14 @@ export function createMission({ eph, data, onMissionReady }) {
     completed = false;
     if (!existing) root.hidden = false;
     setStage('intro');
+  }
+  function hideMission() {
+    if (disposed) return;
+    completed = true;
+    transit?.cancelFlight();
+    setStage('handoff');
+    ui('transit').hidden = true;
+    if (!existing) root.hidden = true;
   }
 
   ui('arrival-date').min = bounds.minDate;
@@ -225,14 +257,12 @@ export function createMission({ eph, data, onMissionReady }) {
     ui('restart').disabled = true;
     ui('flight-date').textContent = fullDate(config.launchH);
     ui('flight-bar').style.width = '0%';
-    const flightStart = performance.now();
     transit.startFlight({
-      launchH: config.launchH, arriveH: config.arriveH, duration: 8000,
-      onTick(h) {
+      launchH: config.launchH, arriveH: config.arriveH, duration: 9500,
+      onTick(h, telemetry = {}) {
         ui('flight-date').textContent = fullDate(h);
-        const percent = Math.min(1, (performance.now() - flightStart) / 8000);
-        ui('flight-bar').style.width = `${percent * 100}%`;
-        ui('flight-phase').textContent = percent < .275 ? 'IGNITION & ASCENT' : percent < .8125 ? 'TRANS-LUNAR FLIGHT' : 'LUNAR APPROACH';
+        ui('flight-bar').style.width = `${(telemetry.progress ?? 0) * 100}%`;
+        ui('flight-phase').textContent = telemetry.phase ?? 'IGNITION & ASCENT';
       },
       onComplete() { ui('restart').disabled = false; finishMission(config); }
     });
@@ -256,6 +286,12 @@ export function createMission({ eph, data, onMissionReady }) {
     if (disposed) return;
     transit = await createTransit({
       canvas: ui('transit'), eph, data,
+      onPerformance(stats) { transitPerformance = { transitFps: Number(stats.fps.toFixed(1)), drawCalls: stats.drawCalls, triangles: stats.triangles, pixelRatio: Number(stats.pixelRatio.toFixed(2)), targetFps: stats.targetFps }; },
+      onTransfer(info) {
+        ui('transfer-note').textContent = info.available
+          ? 'Two-body transfer estimate · 200 km parking orbit · DE421 arrival target · Bodies enlarged'
+          : `Transfer estimate unavailable: ${info.reason || 'choose a later arrival date'}. Arrival geometry still uses DE421.`;
+      },
       onProgress({ loaded, total, label }) { bootLog(label); progress(Math.min(94, 18 + loaded / Math.max(1, total) * 76)); },
       onLaunchAnchor({ x, y, visible }) {
         if (disposed) return;
@@ -277,7 +313,7 @@ export function createMission({ eph, data, onMissionReady }) {
     await new Promise(resolve => setTimeout(resolve, 380));
     if (disposed) return;
     ui('boot').classList.add('out');
-    setStage('intro');
+    if (stage !== 'handoff') setStage('intro');
     ui('plan').disabled = false;
   })().catch(error => {
     if (disposed) return;
@@ -288,12 +324,15 @@ export function createMission({ eph, data, onMissionReady }) {
   return {
     ready,
     show: restart,
-    hide() { ui('transit').hidden = true; if (!existing) root.hidden = true; },
+    hide: hideMission,
     get stage() { return stage; },
     getConfiguration() { return currentConfig ? structuredClone(currentConfig) : null; },
     getGeometrySnapshot() { return transit?.getGeometrySnapshot(); },
     destroy() {
+      if (disposed) return;
+      hideMission();
       disposed = true;
+      cancelAnimationFrame(profileFrame);
       events.abort();
       transit?.dispose();
       root.replaceChildren();
