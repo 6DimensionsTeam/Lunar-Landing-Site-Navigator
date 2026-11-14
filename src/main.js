@@ -1,3 +1,4 @@
+import { mountAnalysis } from './analysis-panel.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { loadAll } from './data.js';
@@ -871,7 +872,7 @@ async function boot() {
 
   // P3, criteria and AI analysis. Shows #analysis. Reads mission.cfg and scores against it.
   {
-    // P3 wires up here
+    mountAnalysis({ renderer, zones, mission, THREE });
   }
 
   // Debug entry point
