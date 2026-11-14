@@ -745,12 +745,17 @@ async function boot() {
       });
       hud.hideHome();
       hud.showScreen('mission');
-      // Keep the terrain poster moving gently, then release the GPU to P2's scene.
+      // Reuse the rendered terrain as the arrival form's poster instead of redrawing
+      // six million terrain triangles behind an otherwise static form.
       // The original callback schedules the next frame through this shared binding.
       const surfaceFrame = frame;
       const missionRoot = hud.screen('mission');
       const profile = new URLSearchParams(location.search).has('perf');
-      let nextSurfaceFrame = 0, surfaceFrames = 0, sampleStart = performance.now();
+      let surfaceDirty = true, surfaceFrames = 0, sampleStart = performance.now();
+      const invalidateSurface = () => { surfaceDirty = true; };
+      missionRoot.addEventListener('missionstagechange', invalidateSurface);
+      window.addEventListener('resize', invalidateSurface);
+      document.addEventListener('visibilitychange', invalidateSurface);
       frame = t => {
         const stage = missionFlow.stage;
         const covered = stage === 'boot' || stage === 'orbit' || stage === 'pad' || stage === 'flight';
@@ -760,11 +765,11 @@ async function boot() {
           surfaceFrames = 0;
           sampleStart = t;
         }
-        if (paused || (stage === 'intro' && t < nextSurfaceFrame)) {
+        if (paused || (stage === 'intro' && !surfaceDirty)) {
           requestAnimationFrame(frame);
           return;
         }
-        nextSurfaceFrame = t + 1000 / 24;
+        surfaceDirty = false;
         surfaceFrames += 1;
         surfaceFrame(t);
       };
