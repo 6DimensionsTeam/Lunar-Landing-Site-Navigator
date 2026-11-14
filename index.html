@@ -102,6 +102,8 @@
         </header>
         <p class="hint"><span><b>Drag</b> rotate</span> <span><b>Scroll</b> zoom</span> <span><b>Right-drag</b> pan</span></p>
         <button id="torover" class="cta2 rover-cta" type="button">Rover Close-up</button>
+        <button id="tositemap" class="cta2 sitemap-cta" type="button">Back to Site Map</button>
+        <button id="toanalysis" class="cta2 analysis-cta" type="button">Analyse This Site</button>
       </section>
 
       <section id="orbit" hidden aria-label="Relay station">
@@ -326,7 +328,34 @@
            keep the offline path the default.
            Screen ids reserved for this package: analysis-panel, analysis-ai. -->
       <section id="analysis" hidden aria-label="Site analysis">
-        <!-- P3 builds here -->
+        <header class="topbar">
+          <button id="an-back" class="back" type="button">Back <kbd>ESC</kbd></button>
+          <p class="loc"><b id="an-site">Site</b> <span>SUITABILITY ANALYSIS</span></p>
+          <p class="clock"><time data-k="clock" data-tab>----</time> <span class="dim">UTC</span></p>
+        </header>
+
+        <div class="ttl">
+          <p class="ttl-k"><b>ANALYSIS</b> <span>Against the mission as configured</span></p>
+          <h1 id="an-verdict">Selected Site</h1>
+          <p class="ttl-en" id="an-year">MEASURED CONDITIONS</p>
+        </div>
+
+        <div class="dock">
+          <section class="panel analysis-panel" aria-labelledby="an-req-h">
+            <h2 id="an-req-h">Requirement Check</h2>
+            <dl class="rows" id="an-reqs"></dl>
+          </section>
+
+          <div class="cta-stack">
+            <button id="an-map" class="cta2" type="button"><span>Back to Site Map</span></button>
+          </div>
+
+          <section class="panel analysis-ai" aria-labelledby="an-ai-h">
+            <h2 id="an-ai-h">Assessment</h2>
+            <p class="an-text" id="an-ai"></p>
+            <p class="credit" id="an-credit"></p>
+          </section>
+        </div>
       </section>
 
       <div id="veil" aria-hidden="true"></div>

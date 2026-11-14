@@ -190,6 +190,10 @@ async function boot() {
   // Set by the P1 block below. Declared up here because the key handler, which runs earlier
   // in this file, has to be able to dismiss that screen.
   let leaveGlobe = () => {};
+  // Set by the P1 block when a descent lands on the surface. While set, Back and Escape return
+  // to the site map rather than to the home screen, which the mission flow skips.
+  let cameFromMap = false;
+  let returnToMap = () => {};
   const orbitFlag = new URLSearchParams(location.search).has('orbit');   // draw the full relay ellipse
   const mouse = new THREE.Vector2(), look = { yaw: 0, pitch: 0 };
   let driftT0 = performance.now();
@@ -590,8 +594,12 @@ async function boot() {
   }, 400);
 
   // ---- Interaction ----
+  // Back out of the surface the way the user came in. Arriving by descending from the site map
+  // makes going "home" a dead end -- the mission flow skips that screen entirely, so it would
+  // leave them on a screen with nothing to click that continues the mission.
+  const backFromSurface = () => { if (cameFromMap) returnToMap(); else go('home'); };
   hud.onEnter(() => go('explore'));
-  hud.onBack(() => go('home'));
+  hud.onBack(backFromSurface);
   hud.onOrbit(() => { refreshOrbit(); go('orbit'); });
   hud.onOrbitBack(() => go('home'));
   hud.onDescend(() => go('explore'));
@@ -631,7 +639,8 @@ async function boot() {
     // The globe owns the frame while it is up, so it takes Escape before the surface modes
     // get a look at it -- otherwise Escape there would fly a camera nobody can see.
     if (e.key === 'Escape' && globeShown) { leaveGlobe(); return; }
-    if (e.key === 'Escape' && (mode === 'explore' || mode === 'orbit')) go('home');
+    if (e.key === 'Escape' && mode === 'explore') backFromSurface();
+    else if (e.key === 'Escape' && mode === 'orbit') go('home');
     else if (e.key === 'Enter' && mode === 'home' && !onBtn) go('explore');
   });
   window.addEventListener('keyup', (e) => keys.delete(e.code));
@@ -766,12 +775,18 @@ async function boot() {
     },
     // The second hand-over: the site the user committed to. Same shape of contract as the
     // first -- the value is held, so a package that mounts late still receives it rather than
-    // missing an event it was not yet listening for.
+    // missing an event it was not yet listening for. More than one screen cares (the analysis
+    // panel, and the controls that unlock once a site exists), so subscribers are kept in a
+    // list rather than a single slot.
     site: null,
-    siteHandler: null,
+    siteHandlers: [],
     onSite(fn) {
-      this.siteHandler = fn;
+      this.siteHandlers.push(fn);
       if (this.site) fn(this.site);
+    },
+    publishSite(sel) {
+      this.site = sel;
+      for (const fn of this.siteHandlers) fn(sel);
     },
   };
 
@@ -1155,8 +1170,7 @@ async function boot() {
       // the abstract. Also announced on the mission object so a later package can pick it up
       // without P1 having to know who is listening.
       chosenSite = { site, entry, year: lastYear, needs: missionNeeds };
-      mission.site = chosenSite;
-      mission.onSite?.(chosenSite);
+      mission.publishSite(chosenSite);
       const m = latLonToMap(R, site.lat, site.lon);
       hide();
       hud.hideScreen('select');
@@ -1189,6 +1203,7 @@ async function boot() {
           controls.enabled = true;
           controls.update();
           hud.showExplore();
+          cameFromMap = true;   // Back and Escape now return to the map, not to a skipped screen
         },
       };
     }
@@ -1246,6 +1261,26 @@ async function boot() {
     };
     backBtn.addEventListener('click', leaveGlobe);
 
+    // Up from the surface, back to the map, with the site still framed. The surface camera is
+    // left where it is: the map owns its own scene, so nothing has to be un-flown, and coming
+    // back down re-flies from the current position anyway.
+    returnToMap = () => {
+      if (mode === 'rover') leaveRover();
+      cameFromMap = false;
+      mode = 'home';
+      flight = null;
+      hud.hideScreen('explore');
+      hud.hideScreen('rover');
+      show();
+    };
+    document.getElementById('tositemap').addEventListener('click', returnToMap);
+    // Forward, to the analysis of the site just visited. Disabled until a site has actually
+    // been committed to, since there is nothing to analyse before that.
+    const analyseBtn = document.getElementById('toanalysis');
+    analyseBtn.disabled = true;
+    analyseBtn.addEventListener('click', () => { if (mission.site) window.__lln_analysis?.(mission.site); });
+    mission.onSite(() => { analyseBtn.disabled = false; });
+
     // Reachable before P2 exists, for development
     window.__lln_showGlobe = show;
     window.__lln_setYear = buildSiteList;
@@ -1254,8 +1289,64 @@ async function boot() {
   }
 
   // P3, criteria and AI analysis. Shows #analysis. Reads mission.cfg and scores against it.
+  //
+  // This renders the ranking the map already computed, rather than scoring again: the map and
+  // this screen have to agree on why a site wins, and two independent scorers would drift. What
+  // it adds is the per-requirement breakdown, which the list has no room for, and an assessment
+  // paragraph. Both are assembled from measured values only -- no model call, so the analysis
+  // renders with the network off, which is the requirement the submission has to meet.
   {
-    // P3 wires up here
+    const an = id => document.getElementById(id);
+    let current = null;
+
+    function render(sel) {
+      current = sel;
+      const { site, entry, year, needs } = sel;
+      an('an-site').textContent = site.en;
+      an('an-verdict').textContent = entry.meetsAll ? 'Suitable as configured' : 'Does not meet the mission';
+      an('an-year').textContent = year != null
+        ? `${year} ANNUAL MEANS · ${site.lat.toFixed(2)}° S · ${site.lon.toFixed(2)}° E`
+        : `${site.lat.toFixed(2)}° S · ${site.lon.toFixed(2)}° E`;
+
+      const reqs = an('an-reqs');
+      reqs.textContent = '';
+      const rows = entry.verdicts.length ? entry.verdicts : [{ label: 'No requirements set', pass: true, value: '' }];
+      for (const v of rows) {
+        const row = document.createElement('div');
+        row.innerHTML = '<dt></dt><dd><span class="val"></span><em></em></dd>';
+        row.querySelector('dt').textContent = v.label;
+        row.querySelector('.val').textContent = v.value;
+        const em = row.querySelector('em');
+        em.dataset.state = v.pass ? 'on' : 'off';
+        em.textContent = v.pass ? 'PASS' : 'FAIL';
+        reqs.appendChild(row);
+      }
+
+      an('an-ai').textContent = explain(entry, needs);
+      const st = entry.stats;
+      an('an-credit').textContent =
+        `${st.sun_visible_pct.toFixed(1)}% sunlight · ${st.earth_visible_pct.toFixed(1)}% Earth link · `
+        + `${st.both_pct.toFixed(1)}% both · longest dark ${st.longest_dark_h} h. `
+        + 'Whole-calendar-year means from LOLA horizon profiles and DE421, not a surface-window calculation.';
+    }
+
+    function open(sel) {
+      render(sel);
+      hud.hideScreen('explore');
+      hud.showScreen('analysis');
+      an('an-back').focus({ preventScroll: true });
+    }
+
+    mission.onSite(open);
+    an('an-back').addEventListener('click', () => {
+      hud.hideScreen('analysis');
+      hud.showExplore();
+    });
+    an('an-map').addEventListener('click', () => {
+      hud.hideScreen('analysis');
+      returnToMap();
+    });
+    window.__lln_analysis = open;
   }
 
   // Debug entry point

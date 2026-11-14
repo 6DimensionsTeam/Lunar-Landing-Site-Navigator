@@ -620,6 +620,10 @@ body {
 #orbit .topbar,
 #rover .topbar { justify-content: space-between; }
 .rover-cta { position: absolute; right: var(--pad); bottom: var(--pad); }
+/* On the surface, the two ways onward sit stacked above the rover entry: back up to the map,
+   or forward into the site's analysis. Without them arriving here from the map is a dead end. */
+.sitemap-cta { position: absolute; left: var(--pad); bottom: calc(var(--pad) + 3.4em); }
+.analysis-cta { position: absolute; left: var(--pad); bottom: var(--pad); }
 
 /* ---------- orbital station ---------- */
 /* station card: upper left, red bar + large name + latin designation */
@@ -750,6 +754,22 @@ body {
 #sel-site-list div.no .why { color: rgba(139, 151, 158, 0.72); }
 #sel-site-list div.sel { background: rgba(242, 244, 245, 0.07); }
 #sel-site-list div.sel dt { color: #fff; }
+
+/* ---------- site analysis ---------- */
+.analysis-panel { grid-area: sites; justify-self: start; width: var(--dock-w); box-sizing: border-box; }
+.analysis-panel h2::before { content: ''; width: 0.55em; height: 0.55em; background: var(--fg); }
+.analysis-ai { grid-area: live; justify-self: end; width: var(--dock-w); box-sizing: border-box; }
+/* the requirement verdicts are the point of the panel: a pass/fail block per requirement */
+#an-reqs ddd, #an-reqs dd { margin: 0; }
+#an-reqs div { align-items: flex-start; }
+#an-reqs dd { flex-direction: column; align-items: flex-end; gap: 0.2em; text-align: right; }
+#an-reqs .val { font: 600 0.86em/1 var(--sans); color: var(--fg2); }
+.an-text { margin: 0; font: 500 0.95em/1.62 var(--sans); letter-spacing: 0.02em; color: var(--fg); }
+/* The generated verdict is long ("Suitable as configured") and the subtitle carries a whole
+   line of coordinates, so this block needs more room than the shared title rule gives it. */
+#analysis .ttl { width: min(64vw, 900px); }
+#analysis .ttl h1 { margin-top: 0.25em; }
+#analysis .ttl .ttl-en { margin-top: 0.7em; }
 
 .hover-tip {
   position: absolute;
