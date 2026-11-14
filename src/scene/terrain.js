@@ -118,6 +118,11 @@ export function createTerrain(data) {
     uTexHero: { value: hero.size },
     uTexIn: { value: inner.size },
     uTexOut: { value: outer.size },
+    uZones: { value: null },       // zone class texture, set by main.js once zones are decoded
+    uZoneA: { value: 0 },          // off until something turns it on
+    uZoneE: { value: 151.68 },
+    uZoneSel: { value: 0 },
+    uZoneDim: { value: 0.25 },
     uLines: { value: 0.4 },      // contour lines and graticule; main.js sets it per camera mode (more prominent from orbit)
     uTrack: { value: 0 },        // orbital station ground track (shown only in the orbit view)
     uTrackDir: { value: new THREE.Vector2(0, 1) },

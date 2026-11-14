@@ -261,10 +261,47 @@
 
       <!-- P1, moon-surface site selection. Rotatable globe, landing zones
            coloured by terrain type with hover tips, preset candidate points,
-           comparison panel. Reads zoneAt() from P0 and rankSites() from P3.
-           Screen ids reserved for this package: select-globe, select-compare. -->
+           comparison panel. Reads zoneAt() from P0 and rankSites() from P3. -->
       <section id="select" hidden aria-label="Landing site selection">
-        <!-- P1 builds here -->
+        <header class="topbar">
+          <p class="loc"><b>South Pole</b> <span>LANDING ZONE SURVEY</span></p>
+          <p class="clock"><time data-k="clock" data-tab>----</time> <span class="dim">UTC</span></p>
+        </header>
+
+        <div class="ttl">
+          <p class="ttl-k"><b>LLN-SEL</b> <span>Candidate site survey</span></p>
+          <h1>Choose a Site</h1>
+          <p class="ttl-en">GLOBAL VIEW &middot; SOUTH POLAR ZONE MAP</p>
+          <p class="ttl-d">Drag to turn the body, scroll to come closer. The landing-zone grid classifies the ground around the pole from LOLA slope and solar/Earth visibility.</p>
+        </div>
+
+        <div class="sites-mk" id="sel-sites"></div>
+
+        <p class="hover-tip" id="sel-tip" hidden>
+          <b id="sel-tip-zone">&mdash;</b>
+          <span class="rows">
+            <span><dt>Slope</dt><dd id="sel-tip-slope">&mdash;</dd></span>
+            <span><dt>Sun</dt><dd id="sel-tip-sun">&mdash;</dd></span>
+            <span><dt>Earth</dt><dd id="sel-tip-earth">&mdash;</dd></span>
+          </span>
+        </p>
+
+        <div class="dock">
+          <section class="panel legend" aria-labelledby="sel-leg-h">
+            <h2 id="sel-leg-h">Landing Zones</h2>
+            <dl class="rows legend-rows" id="sel-legend"></dl>
+          </section>
+
+          <div class="cta-stack">
+            <button id="sel-pole" class="cta2" type="button"><span>Fly to Pole</span></button>
+            <button id="sel-overview" class="cta2" type="button"><span>Whole Moon</span></button>
+          </div>
+
+          <section class="panel live" aria-labelledby="sel-site-h">
+            <h2 id="sel-site-h">Candidate Sites</h2>
+            <dl class="rows" id="sel-site-list"></dl>
+          </section>
+        </div>
       </section>
 
       <!-- P3, criteria and AI analysis. Scoring panel and the one-click

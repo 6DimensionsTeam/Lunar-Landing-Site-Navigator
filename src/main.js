@@ -14,6 +14,7 @@ import { createHud, reducedMotion } from './hud.js';
 import { createStation, STATION, CORE_TRIM } from './scene/station.js';
 import { createRover } from './scene/rover.js';
 import { createZones } from './zones.js';
+import { createGlobe } from './scene/globe.js';
 
 // Home-screen epoch: 2028-09-29 12:00 UTC. Seen from Shackleton, Earth (a 15%-lit crescent) and the Sun both stand only 1.7–3° above the horizon,
 // about 45° apart in azimuth, straddling the south polar ridge. The clock then runs forward at real speed.
@@ -170,6 +171,12 @@ async function boot() {
 
   // ---- Camera ----
   let mode = 'home', flight = null;
+  // The globe (P1's #select screen) is a second pass on the same canvas with its own scene,
+  // camera and render loop. Set by that block below; frame() checks it to actually stop
+  // drawing the surface scene while the globe is up, rather than leaving both loops running
+  // and hoping one callback always lands after the other -- rAF ordering across two
+  // independently-reinstalled callbacks is not a guarantee, and does flip under load.
+  let globeShown = false;
   const orbitFlag = new URLSearchParams(location.search).has('orbit');   // draw the full relay ellipse
   const mouse = new THREE.Vector2(), look = { yaw: 0, pitch: 0 };
   let driftT0 = performance.now();
@@ -498,6 +505,7 @@ async function boot() {
   }
 
   function frame(t) {
+    if (globeShown) return;   // stopped, not skipped: no further rAF is queued until resumeFrame()
     const h = nowH(t);
     syncScene(h);
     const asp = aspect();
@@ -668,6 +676,7 @@ async function boot() {
   for (const s of sites.sites) blocked[s.id] = occluded(camera.position, s.scene);
   clock.t0 = performance.now();
   refreshLive(nowH());
+  const resumeFrame = () => { frame.last = performance.now(); requestAnimationFrame(frame); };
   requestAnimationFrame(frame);
   await B.finish();
   hud.showHome();
@@ -728,7 +737,136 @@ async function boot() {
 
   // P1, moon-surface site selection. Shows #select, receives cfg through mission.onMission.
   {
-    // P1 wires up here
+    const globe = createGlobe({ renderer, data, zones, radiusKm: R });
+    const sel = hud.screen('select');
+    let active = false;
+    let lastT = performance.now();
+
+    globe.resize(window.innerWidth, window.innerHeight);
+    window.addEventListener('resize', () => globe.resize(window.innerWidth, window.innerHeight));
+
+    // Site markers: the same .site chip the home screen uses (white-edged red square, name
+    // beside it), not a 3D object, so the two views read as one product rather than two. Each
+    // is projected every frame from globe.screenOf and hidden when its site is on the far side.
+    const mkHost = document.getElementById('sel-sites');
+    const marks = {};
+    for (const s of data.sites.sites) {
+      const mk = document.createElement('div');
+      mk.className = 'site off';
+      mk.innerHTML = '<i></i><span><b></b></span>';
+      mk.querySelector('b').textContent = s.id;
+      mk.querySelector('span').append(s.en);
+      mkHost.appendChild(mk);
+      marks[s.id] = mk;
+    }
+
+    // Legend: one row per zone class, in the fixed order the classification itself uses
+    // (shadow first, down to the catch-all), reusing zones.js's own names and colours rather
+    // than restating them.
+    const legendHost = document.getElementById('sel-legend');
+    for (const [key, s] of Object.entries(zones.style)) {
+      if (key === 'rough') continue;      // the catch-all: showing it just restates "none of the above"
+      const row = document.createElement('div');
+      const [r, g, b] = s.rgba;
+      const pct = data.zonesMeta.share_pct[key];
+      row.innerHTML = `<dt><i class="swatch" style="background:rgb(${r},${g},${b})"></i>${s.name}</dt><dd>${pct.toFixed(1)}%</dd>`;
+      legendHost.appendChild(row);
+    }
+
+    // Candidate-site list, mirroring the home screen's table: id chip, name, the figures a
+    // selector actually needs (sun, Earth link, longest dark spell), from the full-resolution
+    // horizon profile in sites.json rather than the 480 m zone grid (see zones.js's own note
+    // on why the two can disagree at a site on a sharp ridge).
+    const siteListHost = document.getElementById('sel-site-list');
+    for (const s of data.sites.sites) {
+      const row = document.createElement('div');
+      row.innerHTML = `<dt><i></i>${s.en}</dt><dd>${s.stats.sun_visible_pct.toFixed(1)}% sun · ${s.stats.earth_visible_pct.toFixed(1)}% link</dd>`;
+      row.querySelector('i').textContent = s.id;
+      row.addEventListener('click', () => globe.flyToSite(s));
+      row.style.cursor = 'pointer';
+      siteListHost.appendChild(row);
+    }
+
+    const tip = document.getElementById('sel-tip');
+    const tipZone = document.getElementById('sel-tip-zone');
+    const tipSlope = document.getElementById('sel-tip-slope');
+    const tipSun = document.getElementById('sel-tip-sun');
+    const tipEarth = document.getElementById('sel-tip-earth');
+    let hoverPt = null;
+    renderer.domElement.addEventListener('pointermove', (e) => {
+      if (!active) return;
+      hoverPt = { x: e.clientX, y: e.clientY };
+    });
+
+    document.getElementById('sel-pole').addEventListener('click', () => globe.flyToPole());
+    document.getElementById('sel-overview').addEventListener('click', () => globe.flyToOverview());
+
+    // The globe is a second pass with the same renderer, so it owns the frame while it is up:
+    // the surface scene's own loop is left running but its output is overwritten here.
+    // The globe lights itself from the Moon-fixed Sun direction, not the scene one: the scene
+    // frame has its origin on the south polar surface, where "up" is the pole's outward normal,
+    // so feeding it scene coordinates would light the wrong hemisphere.
+    const sunME = new THREE.Vector3(), earthME = new THREE.Vector3();
+    function frameGlobe(t) {
+      if (!active) return;
+      const dt = Math.min(64, t - lastT);
+      lastT = t;
+      eph.rawAt(nowH(), sunME, earthME);
+      globe.step(dt, sunME);
+      globe.render();
+
+      const w = window.innerWidth, h = window.innerHeight;
+      for (const s of data.sites.sites) {
+        const p = globe.screenOf(s, w, h);
+        const mk = marks[s.id];
+        const onFront = p && p.front && p.x > 8 && p.x < w - 8 && p.y > 8 && p.y < h - 8;
+        mk.classList.toggle('off', !onFront);
+        if (onFront) mk.style.transform = `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0)`;
+      }
+
+      if (hoverPt) {
+        const hit = globe.surfaceAt(hoverPt.x, hoverPt.y, w, h);
+        const z = hit && zones.atLatLon(hit.lat, hit.lon);
+        if (z) {
+          tip.hidden = false;
+          tip.style.transform = `translate3d(${(hoverPt.x + 18).toFixed(1)}px, ${(hoverPt.y + 18).toFixed(1)}px, 0)`;
+          tipZone.textContent = z.name;
+          tipSlope.textContent = `${z.slopeDeg.toFixed(1)}°`;
+          tipSun.textContent = `${z.sun.toFixed(0)}%`;
+          tipEarth.textContent = `${z.earth.toFixed(0)}%`;
+        } else {
+          tip.hidden = true;
+        }
+      }
+
+      requestAnimationFrame(frameGlobe);
+    }
+
+    function show() {
+      active = true;
+      globeShown = true;      // stops frame()'s own render call rather than racing it
+      lastT = performance.now();
+      // P2 has already hidden these by the time it hands over, but this screen can also be
+      // opened on its own during development, and a surface HUD left on top of a globe is
+      // confusing rather than merely untidy.
+      hud.hideHome();
+      hud.hideScreen('mission');
+      hud.showScreen('select');
+      globe.attach(renderer.domElement);
+      requestAnimationFrame(frameGlobe);
+    }
+    function hide() {
+      active = false;
+      globeShown = false;
+      resumeFrame();
+      hud.hideScreen('select');
+    }
+
+    mission.onMission(() => show());
+    // Reachable before P2 exists, for development
+    window.__lln_showGlobe = show;
+    window.__lln_hideGlobe = hide;
+    window.__lln_globe = globe;
   }
 
   // P3, criteria and AI analysis. Shows #analysis. Reads mission.cfg and scores against it.
