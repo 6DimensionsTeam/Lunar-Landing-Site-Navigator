@@ -660,6 +660,13 @@ body {
    views read as one survey rather than a 3D viewport bolted on next to a 2D one */
 #sel-sites { position: absolute; inset: 0; pointer-events: none; }
 #sel-sites .site { pointer-events: none; }
+/* When two candidates project close together the name is pushed clear along the screen's y
+   axis while the square stays on the site, and this hairline keeps the two tied together --
+   the same leader the body and part labels use elsewhere. Drawn only when the name has
+   actually been moved, so a label sitting on its own anchor has no stub hanging off it. */
+#sel-sites .site .lead { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; visibility: hidden; }
+#sel-sites .site.lead-on .lead { visibility: visible; }
+#sel-sites .site .lead polyline { fill: none; stroke: var(--line-hi); stroke-width: 1; }
 .hover-tip {
   position: absolute;
   left: 0;
@@ -674,10 +681,24 @@ body {
   will-change: transform;
 }
 .hover-tip b { display: block; margin: 0 0 0.4em; font: 700 0.95em/1 var(--sans); letter-spacing: 0.1em; color: var(--fg); }
+/* three fields side by side, each a label over its value. The rows are div children of a
+   dl, which is what dt and dd are allowed to sit inside; the generic .rows rules lay a row
+   out horizontally with the value pushed to the far end, which is not this shape. */
 .hover-tip .rows { display: flex; gap: 1.1em; margin: 0; }
-.hover-tip .rows > span { display: flex; flex-direction: column; gap: 0.2em; }
+.hover-tip .rows > div { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 0.2em; }
 .hover-tip dt { font: 600 0.72em/1 var(--sans); letter-spacing: 0.12em; color: var(--dim); }
 .hover-tip dd { margin: 0; font: 600 0.95em/1 var(--sans); color: var(--fg2); }
+/* position of the point under the cursor, in the tabular face so the digits do not jitter
+   as it moves */
+.tip-ll {
+  margin: 0.5em 0 0;
+  padding-top: 0.45em;
+  border-top: 1px solid rgba(242, 244, 245, 0.13);
+  font: 500 0.8em/1 var(--sans);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  color: var(--dim);
+}
 #orbit .live h2 i { min-width: 2em; }
 .back {
   display: flex;
