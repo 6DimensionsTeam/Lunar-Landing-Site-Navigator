@@ -760,12 +760,17 @@ async function boot() {
       const surfaceFrame = frame;
       const missionRoot = hud.screen('mission');
       const profile = new URLSearchParams(location.search).has('perf');
-      let surfaceDirty = true, surfaceFrames = 0, sampleStart = performance.now();
+      let surfaceDirty = true, surfaceFrames = 0, sampleStart = performance.now(), lastSurfaceTick = -1;
       const invalidateSurface = () => { surfaceDirty = true; };
       missionRoot.addEventListener('missionstagechange', invalidateSurface);
       window.addEventListener('resize', invalidateSurface);
       document.addEventListener('visibilitychange', invalidateSurface);
       frame = t => {
+        // A rapid P1 show/hide can queue resumeFrame before the old callback drains.
+        // Only one callback per display frame may continue the surface chain.
+        if (t === lastSurfaceTick) return;
+        lastSurfaceTick = t;
+        if (globeShown) return;
         const stage = missionFlow.stage;
         const covered = stage === 'boot' || stage === 'orbit' || stage === 'pad' || stage === 'flight';
         const paused = document.hidden || covered;
