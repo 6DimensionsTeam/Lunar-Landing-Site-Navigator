@@ -194,6 +194,10 @@ async function boot() {
   // to the site map rather than to the home screen, which the mission flow skips.
   let cameFromMap = false;
   let returnToMap = () => {};
+  // Set by the analysis block. The key handler runs earlier in this file, so it asks rather
+  // than reaching into that block.
+  let analysisOpen = () => false;
+  let closeAnalysis = () => {};
   const orbitFlag = new URLSearchParams(location.search).has('orbit');   // draw the full relay ellipse
   const mouse = new THREE.Vector2(), look = { yaw: 0, pitch: 0 };
   let driftT0 = performance.now();
@@ -639,6 +643,10 @@ async function boot() {
     // The globe owns the frame while it is up, so it takes Escape before the surface modes
     // get a look at it -- otherwise Escape there would fly a camera nobody can see.
     if (e.key === 'Escape' && globeShown) { leaveGlobe(); return; }
+    // #analysis sits on top of the surface view, so without its own branch Escape falls into
+    // the explore one, which hides the explore screen and returns to the map -- leaving the
+    // analysis panel and the map both revealed. It closes the same way its Back button does.
+    if (e.key === 'Escape' && analysisOpen()) { closeAnalysis(); return; }
     if (e.key === 'Escape' && mode === 'explore') backFromSurface();
     else if (e.key === 'Escape' && mode === 'orbit') go('home');
     else if (e.key === 'Enter' && mode === 'home' && !onBtn) go('explore');
@@ -1330,18 +1338,32 @@ async function boot() {
         + 'Whole-calendar-year means from LOLA horizon profiles and DE421, not a surface-window calculation.';
     }
 
+    const isOpen = () => !an('analysis').hidden;
     function open(sel) {
       render(sel);
       hud.hideScreen('explore');
       hud.showScreen('analysis');
       an('an-back').focus({ preventScroll: true });
     }
-
-    mission.onSite(open);
-    an('an-back').addEventListener('click', () => {
+    // Closing returns to the surface, which is where this screen is reached from. It is the
+    // one thing that must not drift: leaving the panel up over a screen it replaced is how the
+    // two end up stacked.
+    function close() {
+      if (!isOpen()) return;
       hud.hideScreen('analysis');
       hud.showExplore();
-    });
+      an('an-back').blur();
+    }
+    analysisOpen = isOpen;
+    closeAnalysis = close;
+
+    // Subscribes only so a committed site is available; it deliberately does not open the
+    // screen. Publishing happens as the descent begins, so opening here would take the user to
+    // the analysis before they had seen the site they picked, with the flight running unseen
+    // behind it -- and the button that is meant to lead here would then be opening a screen
+    // that had already opened itself.
+    mission.onSite((sel) => { current = sel; });
+    an('an-back').addEventListener('click', close);
     an('an-map').addEventListener('click', () => {
       hud.hideScreen('analysis');
       returnToMap();
