@@ -6,10 +6,10 @@
 // rest of the project works in, so a point on the sphere is placed in it by its own latitude
 // and longitude: rho = 2R tan((90 - |lat|) / 2), x = rho sin(lon), y = rho cos(lon), which is
 // latLonToMap from src/geo.js written in GLSL (stereoKm below). The zone grid reaches 151.68
-// km from the pole. A sphere of radius R viewed from distance D along the polar axis shows
-// terrain out to colatitude acos(R/D) at its limb; at the closest view, D = 1.35 R, that is
-// 42 deg -- so the relief basemap, which reaches 45 deg (1440 km), covers what the camera
-// can actually see, with the last few degrees fading toward the sphere's own edge anyway.
+// km from the pole, the relief basemap 457 km (75 deg south to the pole). What the closest
+// view needs is set by the field of view, not by the sphere's limb: at D = 1.35 R with a
+// 32 deg vertical fov the frame corners sit at about 10 deg of colatitude, roughly 300 km
+// from the pole, so 457 km covers it with room to fade out before its own edge shows.
 
 export const globeVert = /* glsl */ `
 out vec3 vN;
@@ -115,19 +115,11 @@ void main() {
       float groundRelief = 0.35 + 0.65 * albedo;
       col = mix(col, z.rgb * groundRelief, a);
 
-      // Contour: compare this class against its four neighbours at one texel's distance.
-      // Where any differs, draw a short bright line instead of letting the two fills blend
-      // into each other -- the only place this view puts a hard, UI-coloured edge on data.
-      vec3 c0 = z.rgb;
-      vec3 cN = texture(uZones, zuv + vec2(0.0, texel.y)).rgb;
-      vec3 cS = texture(uZones, zuv - vec2(0.0, texel.y)).rgb;
-      vec3 cE = texture(uZones, zuv + vec2(texel.x, 0.0)).rgb;
-      vec3 cW = texture(uZones, zuv - vec2(texel.x, 0.0)).rgb;
-      float edge = step(0.02, distance(c0, cN)) + step(0.02, distance(c0, cS))
-                 + step(0.02, distance(c0, cE)) + step(0.02, distance(c0, cW));
-      if (edge > 0.0 && !dimmed) {
-        col = mix(col, vec3(0.949, 0.957, 0.961), min(1.0, edge) * uZoneA * edgeFade * 0.85);
-      }
+      // No contour is drawn here. An earlier version outlined every class boundary, which
+      // at 480 m cells meant outlining each individual speckle: the sunlit and flat classes
+      // break up into thousands of isolated cells at this resolution, and edging all of them
+      // turned the cap into noise. The classes that carry a decision -- permanent shadow and
+      // prime ground -- are large and contiguous enough to read from their fill alone.
     }
   }
 

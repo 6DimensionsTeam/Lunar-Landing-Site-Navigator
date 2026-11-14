@@ -38,13 +38,12 @@ ROOT = Path(__file__).resolve().parent.parent
 RAW = ROOT / "data" / "raw" / "nasa_zones"
 OUT = ROOT / "src" / "data"
 
-HALF_M = 1_440_000.0   # the service's own full extent: 45 deg of arc from the pole
-# The globe's closest view only ever shows about 300-400 km of real ground (colat under
-# 10 deg at DIST.min), a quarter of this layer's reach, so 960px there read as soft,
-# over-magnified blobs rather than craters. 2400px trades resolution where it is not
-# needed for resolution where it is: 600 m/px, four times sharper in the region that is
-# actually ever on screen up close.
-N = 2400
+# SPole75 rather than SPole45: its extent (+/-457 km, 75 deg south to the pole) is what the
+# globe's closest view actually shows (colat under 10 deg, about 300 km), and its native
+# resolution is 30 m against SPole45's 100 m. Fetching the wider product meant asking for
+# ground that never appears on screen at the cost of detail on the ground that always does.
+HALF_M = 457_440.0
+N = 3000               # 305 m/px, still well above the 30 m source, so the detail is real
 
 # Same WKT as fetch_zones.py: requesting it explicitly, rather than reprojecting afterwards,
 # is what keeps this raster on the same (x east, y toward lon 0) pixel grid the zone overlay
@@ -58,7 +57,7 @@ WKT = (
     'PARAMETER["latitude_of_origin",-90.0],UNIT["Meter",1.0]]'
 )
 BASE = "https://trek.nasa.gov/moon/trekarcgis2/rest/services"
-SERVICE = "LRO_LOLA_DEM_SPole45_100mp_v04_SP"
+SERVICE = "LRO_LOLA_DEM_SPole75_30mp_v04_SP"
 
 
 def fetch():
@@ -86,14 +85,23 @@ def fetch():
     return dest
 
 
-def slope_shade(h, scale, knee_deg=14.0):
-    """Darken by how steep the ground is. A light blur first keeps single-pixel DEM noise
-    from reading as crater rims; knee_deg is the slope mapped to full darkening, set loose
-    enough that most rims shade in rather than silhouette solid black."""
-    h = ndimage.gaussian_filter(h, 1.2)
+def hillshade(h, scale, az_deg=315.0, alt_deg=35.0):
+    """Standard directional hillshade: the shading every published relief map uses, and the
+    reason is legibility -- a crater rim lit from one side gets a bright arc and a dark arc,
+    which the eye reads instantly as a raised rim. Shading by slope magnitude instead (an
+    earlier attempt here) gives a rim the same tone all the way round, so craters come out as
+    soft blobs with no sense of up or down, and a field of them looks like water stains.
+
+    No pre-blur: at 305 m/px over a 30 m source the fetch has already averaged away the
+    pixel noise a blur would be for, and blurring again is what flattened the rims before.
+    """
     gy, gx = np.gradient(h, scale)
-    slope = np.degrees(np.arctan(np.hypot(gx, gy)))
-    return 1.0 - np.clip(slope / knee_deg, 0.0, 1.0)
+    az, alt = np.radians(az_deg), np.radians(alt_deg)
+    # surface normal (rows run north to south, hence the sign on gy)
+    nx, ny, nz = -gx, gy, np.ones_like(h)
+    inv = 1.0 / np.sqrt(nx * nx + ny * ny + nz * nz)
+    lx, ly, lz = np.cos(alt) * np.sin(az), np.cos(alt) * np.cos(az), np.sin(alt)
+    return np.clip((nx * lx + ny * ly + nz * lz) * inv, 0.0, 1.0)
 
 
 def main():
@@ -105,11 +113,11 @@ def main():
         h[bad] = np.nanmedian(h[~bad])
 
     scale_m = 2 * HALF_M / h.shape[0]
-    shade = slope_shade(h, scale_m)
-    # Compressed range: this is a backdrop behind a live-lit pass and the zone tint, not
-    # the subject, so it stays off both black and white and close enough to flat grey that
-    # the real, moving terminator reads as the light source, not this baked-in texture.
-    img = (0.5 + 0.34 * shade) * 255
+    shade = hillshade(h, scale_m)
+    # Gamma below 1 opens up the shadow end, where most of this terrain sits once it is lit
+    # from 35 deg, and the range stays off both extremes: the zone tint is composited over
+    # this, and tinting pure white or pure black loses the colour either way.
+    img = (0.2 + 0.72 * shade ** 0.85) * 255
 
     OUT.mkdir(parents=True, exist_ok=True)
     f = OUT / "moon_spole_relief.jpg"

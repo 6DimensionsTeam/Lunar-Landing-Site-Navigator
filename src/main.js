@@ -849,6 +849,10 @@ async function boot() {
       if (!active) return;
       hoverPt = { x: e.clientX, y: e.clientY };
     });
+    // Without these the readout keeps its last position and values after the pointer has
+    // gone, which parks it over the title block in the top-left corner.
+    renderer.domElement.addEventListener('pointerleave', () => { hoverPt = null; tip.hidden = true; });
+    window.addEventListener('blur', () => { hoverPt = null; tip.hidden = true; });
 
     document.getElementById('sel-pole').addEventListener('click', () => globe.flyToPole());
     document.getElementById('sel-overview').addEventListener('click', () => globe.flyToOverview());

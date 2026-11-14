@@ -54,8 +54,13 @@ export function createGlobe({ renderer, data, zones, radiusKm }) {
     uZoneSel: { value: 0 },
     uZoneDim: { value: 0.22 },
     uSunDir: { value: new THREE.Vector3(1, 0, 0) },
-    uAmbient: { value: 0.1 },
-    uTerm: { value: 0.06 },
+    // This is a navigational globe, not a photo. At the mission epoch the Sun sits 1.7-3 deg
+    // above the pole's horizon, so a physically honest fill would leave almost the whole body
+    // pure black with one hard-edged sliver lit -- correct, and useless for finding your way
+    // around. The fill is lifted until the night side still reads as terrain, and the
+    // terminator widened so it falls off as a gradient rather than a cut edge.
+    uAmbient: { value: 0.46 },
+    uTerm: { value: 0.3 },
   };
 
   const sphere = new THREE.Mesh(
@@ -119,9 +124,9 @@ export function createGlobe({ renderer, data, zones, radiusKm }) {
   const axisY = new THREE.Vector3(0, 1, 0), axisX = new THREE.Vector3(1, 0, 0);
   function drag(dx, dy) {
     const k = 0.005 * (dist / DIST.start);
-    qTmp.setFromAxisAngle(axisY, -dx * k);
+    qTmp.setFromAxisAngle(axisY, dx * k);
     orient.premultiply(qTmp);
-    qTmp.setFromAxisAngle(axisX, -dy * k);
+    qTmp.setFromAxisAngle(axisX, dy * k);
     orient.premultiply(qTmp);
     orient.normalize();
   }
