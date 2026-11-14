@@ -697,24 +697,47 @@ async function boot() {
   // date control with eph.startYear / eph.endYear and clamp against eph.maxH, never
   // eph.count (a sample index, which only equals hours when the step is 1 h).
 
-  // P2, mission framing. Shows #mission, hands over through onMissionReady.
+  // Set the mission clock. Declared here rather than further down because the blocks below
+  // call it, and a const is not readable before its own declaration runs.
+  const setTime = (h, rate = 0) => { clock.epochH = h; clock.t0 = performance.now(); clock.rate = rate; lastLit = null; };
+
+  // Handover between the packages. P2 calls ready(cfg) when its launch animation ends;
+  // P1 calls onMission(fn) to receive it. Held in one place for two reasons: the clock
+  // has to be set in exactly one spot, and cfg is kept so the order of mounting does not
+  // matter. A package that registers after the hand-over still gets the configuration,
+  // which a DOM event would have dropped.
+  const mission = {
+    cfg: null,
+    handler: null,
+    ready(cfg) {
+      this.cfg = cfg;
+      setTime(cfg.arriveH, 0);            // stop the clock at the arrival time
+      if (this.handler) this.handler(cfg);
+      else go('home');                    // nothing listening yet: fall back to the overview
+    },
+    onMission(fn) {
+      this.handler = fn;
+      if (this.cfg) fn(this.cfg);         // already handed over, so deliver it now
+    },
+  };
+
+  // P2, mission framing. Shows #mission, calls mission.ready(cfg) when the launch ends.
   {
     // P2 wires up here
   }
 
-  // P1, moon-surface site selection. Shows #select.
+  // P1, moon-surface site selection. Shows #select, receives cfg through mission.onMission.
   {
     // P1 wires up here
   }
 
-  // P3, criteria and AI analysis. Shows #analysis.
+  // P3, criteria and AI analysis. Shows #analysis. Reads mission.cfg and scores against it.
   {
     // P3 wires up here
   }
 
   // Debug entry point
-  const setTime = (h, rate = 0) => { clock.epochH = h; clock.t0 = performance.now(); clock.rate = rate; lastLit = null; };
-  window.__lln = { THREE, camera, controls, terrain, shadows, sky, bodies, post, eph, data, renderer, rig, sites, zones, crater, station, rover, clock, setTime, groundAt, heightAt, go, enterRover, leaveRover, keys, get mode() { return mode; } };
+  window.__lln = { THREE, camera, controls, terrain, shadows, sky, bodies, post, eph, data, renderer, rig, sites, zones, mission, crater, station, rover, clock, setTime, groundAt, heightAt, go, enterRover, leaveRover, keys, get mode() { return mode; } };
   // Core alignment trim panel: hidden entry, appears only in dev mode when the URL carries ?trim, and flies straight to the relay station on load (code kept for later calls).
   // Readings are absolute trims relative to CORE_Q, starting from CORE_TRIM in station.js; copy tuned values back into CORE_TRIM
   const trimQuery = new URLSearchParams(location.search).has('trim');
