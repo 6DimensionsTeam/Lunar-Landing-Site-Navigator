@@ -15,6 +15,7 @@ import { createStation, STATION, CORE_TRIM } from './scene/station.js';
 import { createRover } from './scene/rover.js';
 import { createZones } from './zones.js';
 import { createGlobe } from './scene/globe.js';
+import { rankSites, statsFor, explain } from './rank.js';
 
 // Home-screen epoch: 2028-09-29 12:00 UTC. Seen from Shackleton, Earth (a 15%-lit crescent) and the Sun both stand only 1.7–3° above the horizon,
 // about 45° apart in azimuth, straddling the south polar ridge. The clock then runs forward at real speed.
@@ -763,6 +764,15 @@ async function boot() {
       this.handler = fn;
       if (this.cfg) fn(this.cfg);         // already handed over, so deliver it now
     },
+    // The second hand-over: the site the user committed to. Same shape of contract as the
+    // first -- the value is held, so a package that mounts late still receives it rather than
+    // missing an event it was not yet listening for.
+    site: null,
+    siteHandler: null,
+    onSite(fn) {
+      this.siteHandler = fn;
+      if (this.site) fn(this.site);
+    },
   };
 
   // P2, mission framing. Shows #mission, calls mission.ready(cfg) when the launch ends.
@@ -919,10 +929,10 @@ async function boot() {
     // source data behind it is a fixed observation period, not something to date-pick against.
     const siteListHost = document.getElementById('sel-site-list');
     let framedSite = null;    // which site the map is currently framed on, for click-to-commit
+    let chosenSite = null;    // the site the user committed to, kept for hand-off to the analysis
+    let missionNeeds = {};    // P2's requirements, applied when they arrive
+    let lastYear = null;      // the arrival year the figures are being read for
     const siteListYear = document.getElementById('sel-site-year');
-    function statsFor(s, year) {
-      return (year != null && s.stats_by_year[String(year)]) || s.stats;
-    }
     function buildSiteList(year) {
       siteListHost.textContent = '';
       // Say which figures these are. Without the label the reader cannot tell an average from
@@ -933,16 +943,29 @@ async function boot() {
       siteListYear.textContent = year != null
         ? ` ${year} ANNUAL`
         : ` ${eph.startYear}–${eph.endYear} MEAN`;
-      for (const s of data.sites.sites) {
-        const st = statsFor(s, year);
+      // The requirements P2 collected are what make this a ranking rather than a table: the
+      // list is ordered by how well each site meets the mission as configured, and a site that
+      // fails one is moved below every site that does.
+      const ranked = rankSites(data.sites.sites, zones, year, missionNeeds);
+      for (const entry of ranked) {
+        const s = entry.site, st = entry.stats;
         const row = document.createElement('div');
-        row.innerHTML = `<dt><i></i>${s.en}</dt><dd>${st.sun_visible_pct.toFixed(1)}% sun · ${st.earth_visible_pct.toFixed(1)}% link</dd>`;
+        row.className = entry.meetsAll ? 'ok' : 'no';
+        row.innerHTML = '<dt><i></i><span class="nm"></span><em></em></dt><dd><span class="fig"></span><span class="why"></span></dd>';
         row.querySelector('i').textContent = s.id;
+        row.querySelector('.nm').textContent = s.en;
+        row.querySelector('em').textContent = entry.meetsAll ? 'MEETS' : 'FAILS';
+        row.querySelector('.fig').textContent =
+          `${st.sun_visible_pct.toFixed(1)}% sun · ${st.earth_visible_pct.toFixed(1)}% link · ${st.longest_dark_h} h dark`;
+        // The reason a site was ruled out is the useful part of a failing row, so it is shown
+        // rather than hidden behind a tooltip.
+        row.querySelector('.why').textContent = explain(entry, missionNeeds);
+        row.title = entry.fails.join('\n');
         // One click frames the site on the map, a second commits to it and goes down to the
         // surface. Going straight down on the first click would take the map away before the
         // user had seen the site in its surroundings, which is what the map is for.
         row.addEventListener('click', () => {
-          if (framedSite === s.id && !globe.flying) descendTo(s);
+          if (framedSite === s.id && !globe.flying) descendTo(s, entry);
           else { framedSite = s.id; globe.flyToSite(s); }
           for (const r of siteListHost.children) r.classList.toggle('sel', r === row);
         });
@@ -1126,7 +1149,14 @@ async function boot() {
     // tile's 480 m cells, which is visibly coarser underfoot. The flight still works; the
     // ground is simply blockier at the two outer sites, and no interpolation would put detail
     // there that the DEM does not have.
-    function descendTo(site) {
+    function descendTo(site, entry) {
+      // The commitment is recorded before the camera moves, because it is what the rest of the
+      // flow is about: the analysis screen scores the site the user chose, not the best site in
+      // the abstract. Also announced on the mission object so a later package can pick it up
+      // without P1 having to know who is listening.
+      chosenSite = { site, entry, year: lastYear, needs: missionNeeds };
+      mission.site = chosenSite;
+      mission.onSite?.(chosenSite);
       const m = latLonToMap(R, site.lat, site.lon);
       hide();
       hud.hideScreen('select');
@@ -1167,10 +1197,17 @@ async function boot() {
     // is read here rather than ignored. Clamped into the ephemeris range: a date control that
     // let the user off the end of it would otherwise index a year that has no entry.
     mission.onMission((cfg) => {
+      // The requirements are the other half of the configuration, and the half that decides
+      // what this screen is actually for: without them the list is a table of measurements,
+      // with them it ranks against the mission the user described. Both were being collected
+      // by P2 and only arriveH was being read.
+      missionNeeds = (cfg && cfg.needs) || {};
+      lastYear = null;
       if (cfg && Number.isFinite(cfg.arriveH)) {
         const y = eph.hoursToDate(THREE.MathUtils.clamp(cfg.arriveH, 0, eph.maxH)).getUTCFullYear();
-        buildSiteList(THREE.MathUtils.clamp(y, eph.startYear, eph.endYear));
+        lastYear = THREE.MathUtils.clamp(y, eph.startYear, eph.endYear);
       }
+      buildSiteList(lastYear);
       show();
     });
     // A way in that does not depend on P2. The mission flow is the intended route here --
