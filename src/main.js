@@ -15,6 +15,7 @@ import { createStation, STATION, CORE_TRIM } from './scene/station.js';
 import { createRover } from './scene/rover.js';
 import { createZones } from './zones.js';
 import { createGlobe } from './scene/globe.js';
+import { rankSites, statsFor, explain } from './rank.js';
 
 // Home-screen epoch: 2028-09-29 12:00 UTC. Seen from Shackleton, Earth (a 15%-lit crescent) and the Sun both stand only 1.7–3° above the horizon,
 // about 45° apart in azimuth, straddling the south polar ridge. The clock then runs forward at real speed.
@@ -177,6 +178,26 @@ async function boot() {
   // and hoping one callback always lands after the other -- rAF ordering across two
   // independently-reinstalled callbacks is not a guarantee, and does flip under load.
   let globeShown = false;
+  // Whether the surface loop has actually reached the guard in frame() and stopped queueing
+  // itself. resumeFrame() needs this: P2 wraps frame() with its own rAF chain that keeps
+  // re-queueing while the mission form is up without ever calling through, so "the globe is
+  // hidden" is not the same as "no chain is running", and resuming on that assumption starts
+  // a second one that then renders the scene twice per frame.
+  let surfaceStopped = false;
+  // True while the descent from the zone map is driving the surface scene itself, rather than
+  // through the shared `frame` binding. See descendTo.
+  let ownSurface = false;
+  // Set by the P1 block below. Declared up here because the key handler, which runs earlier
+  // in this file, has to be able to dismiss that screen.
+  let leaveGlobe = () => {};
+  // Set by the P1 block when a descent lands on the surface. While set, Back and Escape return
+  // to the site map rather than to the home screen, which the mission flow skips.
+  let cameFromMap = false;
+  let returnToMap = () => {};
+  // Set by the analysis block. The key handler runs earlier in this file, so it asks rather
+  // than reaching into that block.
+  let analysisOpen = () => false;
+  let closeAnalysis = () => {};
   const orbitFlag = new URLSearchParams(location.search).has('orbit');   // draw the full relay ellipse
   const mouse = new THREE.Vector2(), look = { yaw: 0, pitch: 0 };
   let driftT0 = performance.now();
@@ -342,6 +363,9 @@ async function boot() {
   const poseOf = (m) => (m === 'explore' ? rig.landing(aspect()) : m === 'orbit' ? rig.orbit(aspect(), station.place) : rig.home(aspect()));
   function go(target) {
     if (mode === 'fly' || mode === target || mode === 'rover') return;
+    // Whoever called this is taking the screen, so the descent's own loop steps aside and the
+    // shared binding drives again from here.
+    if (ownSurface) { ownSurface = false; surfaceStopped = true; resumeFrame(); }
     if (mode === 'explore' && target === 'orbit') return;
     const a = { pos: camera.position.clone(), quat: camera.quaternion.clone(), fov: camera.fov };
     const b = poseOf(target);
@@ -504,15 +528,19 @@ async function boot() {
     camera.position.copy(rvT).add(off);
   }
 
-  function frame(t) {
-    if (globeShown) return;   // stopped, not skipped: no further rAF is queued until resumeFrame()
+  // One frame of the surface scene, without queueing the next one. Split out from frame() so a
+  // camera flight can drive the scene itself. P2 replaces the `frame` binding with a wrapper
+  // that only calls through when it considers the surface dirty, and pauses outright while its
+  // own stages are up, so a flight that relied on that binding would render its first frame and
+  // then sit still -- which is what the descent from the zone map did.
+  function surfaceStep(t) {
     const h = nowH(t);
     syncScene(h);
     const asp = aspect();
     if (Math.abs(camera.aspect - asp) > 1e-6) { camera.aspect = asp; camera.updateProjectionMatrix(); }
     let u = 1;
-    const dt = Math.min((t - (frame.last || t)) / 1000, 0.1);
-    frame.last = t;
+    const dt = Math.min((t - (surfaceStep.last || t)) / 1000, 0.1);
+    surfaceStep.last = t;
     if (mode === 'home') {
       rig.apply(homePose(t));
     } else if (mode === 'fly' && flight) {
@@ -553,6 +581,12 @@ async function boot() {
     else if (mode === 'orbit') hudOrbit();
     else if (mode === 'rover') hudRover(t);
     if (mode === 'fly' && flight && u >= 1) flight.done();
+  }
+
+  function frame(t) {
+    if (globeShown) { surfaceStopped = true; return; }   // stopped, not skipped: no further rAF is queued until resumeFrame()
+    surfaceStopped = false;
+    surfaceStep(t);
     requestAnimationFrame(frame);
   }
 
@@ -564,8 +598,12 @@ async function boot() {
   }, 400);
 
   // ---- Interaction ----
+  // Back out of the surface the way the user came in. Arriving by descending from the site map
+  // makes going "home" a dead end -- the mission flow skips that screen entirely, so it would
+  // leave them on a screen with nothing to click that continues the mission.
+  const backFromSurface = () => { if (cameFromMap) returnToMap(); else go('home'); };
   hud.onEnter(() => go('explore'));
-  hud.onBack(() => go('home'));
+  hud.onBack(backFromSurface);
   hud.onOrbit(() => { refreshOrbit(); go('orbit'); });
   hud.onOrbitBack(() => go('home'));
   hud.onDescend(() => go('explore'));
@@ -602,7 +640,15 @@ async function boot() {
       else if (e.code === 'KeyC') chase.free = !chase.free;
       return;
     }
-    if (e.key === 'Escape' && (mode === 'explore' || mode === 'orbit')) go('home');
+    // The globe owns the frame while it is up, so it takes Escape before the surface modes
+    // get a look at it -- otherwise Escape there would fly a camera nobody can see.
+    if (e.key === 'Escape' && globeShown) { leaveGlobe(); return; }
+    // #analysis sits on top of the surface view, so without its own branch Escape falls into
+    // the explore one, which hides the explore screen and returns to the map -- leaving the
+    // analysis panel and the map both revealed. It closes the same way its Back button does.
+    if (e.key === 'Escape' && analysisOpen()) { closeAnalysis(); return; }
+    if (e.key === 'Escape' && mode === 'explore') backFromSurface();
+    else if (e.key === 'Escape' && mode === 'orbit') go('home');
     else if (e.key === 'Enter' && mode === 'home' && !onBtn) go('explore');
   });
   window.addEventListener('keyup', (e) => keys.delete(e.code));
@@ -676,7 +722,14 @@ async function boot() {
   for (const s of sites.sites) blocked[s.id] = occluded(camera.position, s.scene);
   clock.t0 = performance.now();
   refreshLive(nowH());
-  const resumeFrame = () => { frame.last = performance.now(); requestAnimationFrame(frame); };
+  // Re-arms the surface loop, and only if it genuinely stopped. Called on the way back from
+  // the globe, which may be entered and left repeatedly.
+  const resumeFrame = () => {
+    if (!surfaceStopped) return;
+    surfaceStopped = false;
+    frame.last = performance.now();
+    requestAnimationFrame(frame);
+  };
   requestAnimationFrame(frame);
   await B.finish();
   hud.showHome();
@@ -727,6 +780,21 @@ async function boot() {
     onMission(fn) {
       this.handler = fn;
       if (this.cfg) fn(this.cfg);         // already handed over, so deliver it now
+    },
+    // The second hand-over: the site the user committed to. Same shape of contract as the
+    // first -- the value is held, so a package that mounts late still receives it rather than
+    // missing an event it was not yet listening for. More than one screen cares (the analysis
+    // panel, and the controls that unlock once a site exists), so subscribers are kept in a
+    // list rather than a single slot.
+    site: null,
+    siteHandlers: [],
+    onSite(fn) {
+      this.siteHandlers.push(fn);
+      if (this.site) fn(this.site);
+    },
+    publishSite(sel) {
+      this.site = sel;
+      for (const fn of this.siteHandlers) fn(sel);
     },
   };
 
@@ -801,25 +869,71 @@ async function boot() {
   {
     const globe = createGlobe({ renderer, data, zones, radiusKm: R });
     const sel = hud.screen('select');
+    const backBtn = document.getElementById('sel-back');
+    const toSelectBtn = document.getElementById('toselect');
     let active = false;
     let lastT = performance.now();
+    // Handle of the pending globe frame, 0 when none is queued. show() and hide() can both be
+    // called more than once -- the mission hand-over and the home button can land in either
+    // order, and Back and Escape both route to the same place -- so the loop is owned by this
+    // one handle rather than by whoever last called show().
+    let frameReq = 0;
+    // Orbit-controls state to put back on the way out, so the globe does not decide it
+    let ctrlWasEnabled = false;
+    let labelH = 0;        // measured height of one site label, for the collision pass
 
     globe.resize(window.innerWidth, window.innerHeight);
-    window.addEventListener('resize', () => globe.resize(window.innerWidth, window.innerHeight));
+    // Graduations for the left-edge tape. Fixed at even spacing down from the frame centre and
+    // labelled with the ground distance each position actually corresponds to, rather than
+    // placed at fixed distances: on a globe the frame covers a few hundred km up close and a
+    // few thousand km from far out, so marks at fixed distances would bunch against the centre
+    // at one zoom and run off the edge at the other. This way the scale is honest at any zoom
+    // and evenly readable, which is what a graduated rule is for.
+    const tape = document.getElementById('sel-tape');
+    const tapeEls = [...tape.children];
+    // The tape is a radial scale down the left edge, with the pole at the frame centre, so the
+    // same distance reads the same above and below it. Marks sit at fixed screen offsets and
+    // each is labelled with the ground distance that offset corresponds to -- placing marks at
+    // fixed distances instead would bunch them against the centre at close zoom and push them
+    // off the edge at far zoom, since the frame covers a few hundred km up close and a few
+    // thousand km from far out.
+    const tapeKm = () => {
+      const fov = (globe.camera.fov * Math.PI) / 360;
+      const d = globe.distance;
+      const halfKm = Math.max(1e-3, (d - 1) * Math.tan(fov)) * data.radiusKm;
+      tapeEls.forEach((el, i) => {
+        const off = i + 1;                       // 1..n, marks either side of the centre
+        const side = el.dataset.side === 'down' ? 1 : -1;
+        const frac = off * 0.11;                 // fraction of the half-frame this mark sits at
+        el.hidden = frac > 0.95;
+        el.style.top = `${50 + side * frac * 50}%`;
+        const km = frac * halfKm;
+        el.dataset.km = km >= 100 ? `${Math.round(km / 10) * 10}` : `${Math.round(km)}`;
+      });
+    };
+    window.addEventListener('resize', () => {
+      globe.resize(window.innerWidth, window.innerHeight);
+      tipKey = '';       // force one re-measure of the hover box against the new root font size
+      labelH = 0;
+      tapeKm();
+    });
 
     // Site markers: the same .site chip the home screen uses (white-edged red square, name
     // beside it), not a 3D object, so the two views read as one product rather than two. Each
     // is projected every frame from globe.screenOf and hidden when its site is on the far side.
+    // Each marker also carries a leader line, used only when the label has had to be moved
+    // off its own anchor to clear another label (see layoutMarks). The square stays on the
+    // site; the leader is what keeps a moved name attached to it.
     const mkHost = document.getElementById('sel-sites');
     const marks = {};
     for (const s of data.sites.sites) {
       const mk = document.createElement('div');
       mk.className = 'site off';
-      mk.innerHTML = '<i></i><span><b></b></span>';
+      mk.innerHTML = '<i></i><svg class="lead" aria-hidden="true"><polyline points="0,0 0,0" /></svg><span><b></b></span>';
       mk.querySelector('b').textContent = s.id;
       mk.querySelector('span').append(s.en);
       mkHost.appendChild(mk);
-      marks[s.id] = mk;
+      marks[s.id] = { el: mk, lead: mk.querySelector('.lead polyline'), label: mk.querySelector('span') };
     }
 
     // Legend: one row per zone class, in the fixed order the classification itself uses
@@ -839,26 +953,86 @@ async function boot() {
     // selector actually needs (sun, Earth link, longest dark spell), from the full-resolution
     // horizon profile in sites.json rather than the 480 m zone grid (see zones.js's own note
     // on why the two can disagree at a site on a sharp ridge).
+    //
+    // Which year's figures: sun and Earth visibility genuinely move year to year (the 18.6 yr
+    // lunar nodal cycle), so a site picked before the mission's arrival year is known shows
+    // the whole-window average (stats); once it is known, this rebuilds against that year's
+    // stats_by_year entry instead. The zone classification itself (shadow, prime, slope) is
+    // not part of this: it describes the shape of the ground, not a moment in time, and the
+    // source data behind it is a fixed observation period, not something to date-pick against.
     const siteListHost = document.getElementById('sel-site-list');
-    for (const s of data.sites.sites) {
-      const row = document.createElement('div');
-      row.innerHTML = `<dt><i></i>${s.en}</dt><dd>${s.stats.sun_visible_pct.toFixed(1)}% sun · ${s.stats.earth_visible_pct.toFixed(1)}% link</dd>`;
-      row.querySelector('i').textContent = s.id;
-      row.addEventListener('click', () => globe.flyToSite(s));
-      row.style.cursor = 'pointer';
-      siteListHost.appendChild(row);
+    let framedSite = null;    // which site the map is currently framed on, for click-to-commit
+    let chosenSite = null;    // the site the user committed to, kept for hand-off to the analysis
+    let missionNeeds = {};    // P2's requirements, applied when they arrive
+    let lastYear = null;      // the arrival year the figures are being read for
+    const siteListYear = document.getElementById('sel-site-year');
+    function buildSiteList(year) {
+      siteListHost.textContent = '';
+      // Say which figures these are. Without the label the reader cannot tell an average from
+      // a specific year's, and the two differ by several points at these sites. Both labels
+      // name a whole-calendar-year mean, because that is what sites.json holds: a year entry
+      // averages that entire year, not the arrival window inside it. Nothing here is computed
+      // over a transfer or surface window, so neither label may imply one.
+      siteListYear.textContent = year != null
+        ? ` ${year} ANNUAL`
+        : ` ${eph.startYear}–${eph.endYear} MEAN`;
+      // The requirements P2 collected are what make this a ranking rather than a table: the
+      // list is ordered by how well each site meets the mission as configured, and a site that
+      // fails one is moved below every site that does.
+      const ranked = rankSites(data.sites.sites, zones, year, missionNeeds);
+      for (const entry of ranked) {
+        const s = entry.site, st = entry.stats;
+        const row = document.createElement('div');
+        row.className = entry.meetsAll ? 'ok' : 'no';
+        row.innerHTML = '<dt><i></i><span class="nm"></span><em></em></dt><dd><span class="fig"></span><span class="why"></span></dd>';
+        row.querySelector('i').textContent = s.id;
+        row.querySelector('.nm').textContent = s.en;
+        row.querySelector('em').textContent = entry.meetsAll ? 'MEETS' : 'FAILS';
+        row.querySelector('.fig').textContent =
+          `${st.sun_visible_pct.toFixed(1)}% sun · ${st.earth_visible_pct.toFixed(1)}% link · ${st.longest_dark_h} h dark`;
+        // The reason a site was ruled out is the useful part of a failing row, so it is shown
+        // rather than hidden behind a tooltip.
+        row.querySelector('.why').textContent = explain(entry, missionNeeds);
+        row.title = entry.fails.join('\n');
+        // One click frames the site on the map, a second commits to it and goes down to the
+        // surface. Going straight down on the first click would take the map away before the
+        // user had seen the site in its surroundings, which is what the map is for.
+        row.addEventListener('click', () => {
+          if (framedSite === s.id && !globe.flying) descendTo(s, entry);
+          else { framedSite = s.id; globe.flyToSite(s); }
+          for (const r of siteListHost.children) r.classList.toggle('sel', r === row);
+        });
+        row.style.cursor = 'pointer';
+        siteListHost.appendChild(row);
+      }
     }
+    buildSiteList(null);
 
     const tip = document.getElementById('sel-tip');
     const tipZone = document.getElementById('sel-tip-zone');
     const tipSlope = document.getElementById('sel-tip-slope');
     const tipSun = document.getElementById('sel-tip-sun');
     const tipEarth = document.getElementById('sel-tip-earth');
+    const tipLL = document.getElementById('sel-tip-ll');
+    // Degrees with a hemisphere letter, not a signed number and not 0-360 east: this screen
+    // is read against published site coordinates, which are written this way.
+    const fmtLatLon = (lat, lon) => {
+      const lo = ((((lon % 360) + 360) % 360) + 180) % 360 - 180;
+      return `${Math.abs(lat).toFixed(2)}° ${lat < 0 ? 'S' : 'N'} · ${Math.abs(lo).toFixed(2)}° ${lo < 0 ? 'W' : 'E'}`;
+    };
+    // Box size, for keeping it inside the viewport. Measured when the widest field changes
+    // rather than every frame, which would be a layout read per frame for a box whose size
+    // only moves when the zone name does.
+    let tipW = 0, tipH = 0, tipKey = '';
     let hoverPt = null;
     renderer.domElement.addEventListener('pointermove', (e) => {
       if (!active) return;
       hoverPt = { x: e.clientX, y: e.clientY };
     });
+    // Without these the readout keeps its last position and values after the pointer has
+    // gone, which parks it over the title block in the top-left corner.
+    renderer.domElement.addEventListener('pointerleave', () => { hoverPt = null; tip.hidden = true; });
+    window.addEventListener('blur', () => { hoverPt = null; tip.hidden = true; });
 
     document.getElementById('sel-pole').addEventListener('click', () => globe.flyToPole());
     document.getElementById('sel-overview').addEventListener('click', () => globe.flyToOverview());
@@ -869,7 +1043,54 @@ async function boot() {
     // frame has its origin on the south polar surface, where "up" is the pole's outward normal,
     // so feeding it scene coordinates would light the wrong hemisphere.
     const sunME = new THREE.Vector3(), earthME = new THREE.Vector3();
+    // Marker layout. The four candidates lie within about 150 km of each other, so at the
+    // overview distance their names land on top of one another and the stack is unreadable.
+    // Only the name block moves: the square stays on the projected site, because that is the
+    // measurement, and a leader line is drawn from the square to the name whenever the name
+    // has been pushed off it. One pass down the screen opens a gap between neighbours, and a
+    // pass back up pulls the stack in if the first one ran off the bottom edge.
+    const slots = [];
+    function layoutMarks(w, h) {
+      slots.length = 0;
+      for (const s of data.sites.sites) {
+        const m = marks[s.id];
+        const p = globe.screenOf(s, w, h);
+        const onFront = p && p.front && p.x > 8 && p.x < w - 8 && p.y > 8 && p.y < h - 8;
+        m.el.classList.toggle('off', !onFront);
+        if (onFront) {
+          m.el.style.transform = `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0)`;
+          slots.push({ m, y: p.y, ly: p.y });
+        }
+      }
+      if (!slots.length) return;
+      // The chip's own height, read from the live element rather than assumed, so the spacing
+      // follows the stylesheet. Falls back if the screen is not laid out yet.
+      if (!labelH) labelH = Math.round(slots[0].m.label.getBoundingClientRect().height) || 22;
+      const gap = labelH + 4;
+      slots.sort((a, b) => a.y - b.y);
+      let prev = -Infinity;
+      for (const s of slots) { s.ly = Math.max(s.y, prev + gap); prev = s.ly; }
+      const bottom = h - 12;
+      if (slots[slots.length - 1].ly > bottom) {
+        let next = bottom;
+        for (let i = slots.length - 1; i >= 0; i--) {
+          const s = slots[i];
+          s.ly = Math.min(s.ly, next);
+          next = s.ly - gap;
+        }
+      }
+      for (const s of slots) {
+        const dy = s.ly - s.y;
+        const moved = Math.abs(dy) > 1;
+        s.m.label.style.transform = `translateY(calc(-50% + ${dy.toFixed(1)}px))`;
+        s.m.el.classList.toggle('lead-on', moved);
+        // From just clear of the square to the left edge of the name at its new height
+        if (moved) s.m.lead.setAttribute('points', `6,0 11,${dy.toFixed(1)}`);
+      }
+    }
+
     function frameGlobe(t) {
+      frameReq = 0;
       if (!active) return;
       const dt = Math.min(64, t - lastT);
       lastT = t;
@@ -878,62 +1099,286 @@ async function boot() {
       globe.render();
 
       const w = window.innerWidth, h = window.innerHeight;
-      for (const s of data.sites.sites) {
-        const p = globe.screenOf(s, w, h);
-        const mk = marks[s.id];
-        const onFront = p && p.front && p.x > 8 && p.x < w - 8 && p.y > 8 && p.y < h - 8;
-        mk.classList.toggle('off', !onFront);
-        if (onFront) mk.style.transform = `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0)`;
-      }
+      layoutMarks(w, h);
+      tapeKm();               // the scale changes with the camera, so it is read per frame
 
       if (hoverPt) {
         const hit = globe.surfaceAt(hoverPt.x, hoverPt.y, w, h);
-        const z = hit && zones.atLatLon(hit.lat, hit.lon);
-        if (z) {
+        if (hit) {
+          // The zone grid is a cap over the south pole, and zones.atLatLon projects by
+          // |lat|, so asking it about a northern point answers with the mirror-image
+          // southern cell. Ask only where the grid has ground, and say so where it has none
+          // rather than quoting a figure for somewhere else.
+          const z = hit.lat < 0 ? zones.atLatLon(hit.lat, hit.lon) : null;
           tip.hidden = false;
-          tip.style.transform = `translate3d(${(hoverPt.x + 18).toFixed(1)}px, ${(hoverPt.y + 18).toFixed(1)}px, 0)`;
-          tipZone.textContent = z.name;
-          tipSlope.textContent = `${z.slopeDeg.toFixed(1)}°`;
-          tipSun.textContent = `${z.sun.toFixed(0)}%`;
-          tipEarth.textContent = `${z.earth.toFixed(0)}%`;
+          tipZone.textContent = z ? z.name : 'OUTSIDE SURVEY GRID';
+          tipSlope.textContent = z ? `${z.slopeDeg.toFixed(1)}°` : '—';
+          tipSun.textContent = z ? `${z.sun.toFixed(0)}%` : '—';
+          tipEarth.textContent = z ? `${z.earth.toFixed(0)}%` : '—';
+          tipLL.textContent = fmtLatLon(hit.lat, hit.lon);
+          if (tipKey !== tipZone.textContent) {
+            tipKey = tipZone.textContent;
+            tipW = tip.offsetWidth;
+            tipH = tip.offsetHeight;
+          }
+          // Keep the whole box on screen: near the right or bottom edge it stops against the
+          // edge instead of hanging off it with the figures cut away.
+          const x = Math.min(hoverPt.x + 18, Math.max(8, w - tipW - 8));
+          const y = Math.min(hoverPt.y + 18, Math.max(8, h - tipH - 8));
+          tip.style.transform = `translate3d(${Math.max(8, x).toFixed(1)}px, ${Math.max(8, y).toFixed(1)}px, 0)`;
         } else {
-          tip.hidden = true;
+          tip.hidden = true;      // pointer is off the body, on the sky
         }
       }
 
-      requestAnimationFrame(frameGlobe);
+      frameReq = requestAnimationFrame(frameGlobe);
     }
 
     function show() {
+      if (active) return;     // both ways in can fire; the second must not start a second loop
       active = true;
       globeShown = true;      // stops frame()'s own render call rather than racing it
+      ownSurface = false;     // the map takes the screen back from a descent's own loop
       lastT = performance.now();
-      // P2 has already hidden these by the time it hands over, but this screen can also be
-      // opened on its own during development, and a surface HUD left on top of a globe is
-      // confusing rather than merely untidy.
+      // The surface camera's orbit controls are bound to this same canvas. Left enabled they
+      // read the same drags and wheels the globe is reading and fly a camera nobody can see.
+      ctrlWasEnabled = controls.enabled;
+      controls.enabled = false;
+      // Every other screen goes down, not just the two the mission hand-over leaves. A
+      // surface HUD left over a globe is not merely untidy: explore and orbit each carry
+      // their own top bar and clock, so the header reads as two places at once and the
+      // bottom hint describes controls this screen does not have.
       hud.hideHome();
+      hud.hideExplore();
+      hud.hideOrbit();
       hud.hideScreen('mission');
       hud.showScreen('select');
+      // The window may have been resized while this screen was down, and nothing resized the
+      // globe's own camera then, so its aspect would be a frame stale on the way in.
+      globe.resize(window.innerWidth, window.innerHeight);
       globe.attach(renderer.domElement);
-      requestAnimationFrame(frameGlobe);
+      if (!frameReq) frameReq = requestAnimationFrame(frameGlobe);
+      backBtn.focus({ preventScroll: true });
     }
     function hide() {
+      if (!active) return;
       active = false;
       globeShown = false;
+      if (frameReq) { cancelAnimationFrame(frameReq); frameReq = 0; }
+      globe.detach();
+      hoverPt = null;
+      tip.hidden = true;
+      controls.enabled = ctrlWasEnabled;
       resumeFrame();
       hud.hideScreen('select');
     }
 
-    mission.onMission(() => show());
+    // Commit to a site: leave the map and put the surface camera on the ground beside it, the
+    // same standing-off-the-rim pose the opening view uses, reached by the same flight. The
+    // map answers "which one"; this answers "what does it actually look like".
+    //
+    // Terrain detail is not uniform across the four. The hero tile is +/-30.7 km of the pole,
+    // so A and B stand on 40 m data while C (40 km out) and D (123 km) fall back to the inner
+    // tile's 480 m cells, which is visibly coarser underfoot. The flight still works; the
+    // ground is simply blockier at the two outer sites, and no interpolation would put detail
+    // there that the DEM does not have.
+    function descendTo(site, entry) {
+      // The commitment is recorded before the camera moves, because it is what the rest of the
+      // flow is about: the analysis screen scores the site the user chose, not the best site in
+      // the abstract. Also announced on the mission object so a later package can pick it up
+      // without P1 having to know who is listening.
+      chosenSite = { site, entry, year: lastYear, needs: missionNeeds };
+      mission.publishSite(chosenSite);
+      const m = latLonToMap(R, site.lat, site.lon);
+      hide();
+      hud.hideScreen('select');
+      const a = { pos: camera.position.clone(), quat: camera.quaternion.clone(), fov: camera.fov };
+      const b = rig.landing(aspect(), m);
+      from = 'home';
+      to = 'explore';
+      mode = 'fly';
+      // Drive the surface directly rather than leaving it to whoever owns the `frame` binding
+      // (see the note on surfaceStep), and keep driving it after the camera lands. Handing back
+      // would hand into P2's wrapper, which pauses while its own flow is anywhere short of
+      // finished -- and arriving on the surface this way leaves that flow unfinished by
+      // definition, since the zone map was reached without launching. ownSurface is released
+      // when something else takes the screen: go() for the surface modes, or the map on return.
+      ownSurface = true;
+      requestAnimationFrame(function step(t) {
+        if (!ownSurface) return;
+        surfaceStep(t);
+        requestAnimationFrame(step);
+      });
+      flight = {
+        t0: performance.now(),
+        dur: 2600,
+        path: rig.flight(a, b),
+        done: () => {
+          flight = null;
+          mode = 'explore';
+          Object.assign(controls, CTRL.explore);
+          controls.target.copy(b.target);
+          controls.enabled = true;
+          controls.update();
+          hud.showExplore();
+          cameFromMap = true;   // Back and Escape now return to the map, not to a skipped screen
+        },
+      };
+    }
+
+    // The arrival time is what makes the site figures specific rather than an average, so it
+    // is read here rather than ignored. Clamped into the ephemeris range: a date control that
+    // let the user off the end of it would otherwise index a year that has no entry.
+    mission.onMission((cfg) => {
+      // The requirements are the other half of the configuration, and the half that decides
+      // what this screen is actually for: without them the list is a table of measurements,
+      // with them it ranks against the mission the user described. Both were being collected
+      // by P2 and only arriveH was being read.
+      missionNeeds = (cfg && cfg.needs) || {};
+      lastYear = null;
+      if (cfg && Number.isFinite(cfg.arriveH)) {
+        const y = eph.hoursToDate(THREE.MathUtils.clamp(cfg.arriveH, 0, eph.maxH)).getUTCFullYear();
+        lastYear = THREE.MathUtils.clamp(y, eph.startYear, eph.endYear);
+      }
+      buildSiteList(lastYear);
+      show();
+    });
+    // A way in that does not depend on P2. The mission flow is the intended route here --
+    // it is what supplies the arrival date the figures key off -- but the zone map stands on
+    // its own, and without this the screen is unreachable unless the launch sequence has run.
+    // Only from the home screen, which is the only place the button is. The other dock
+    // buttons get this guard from go(), which refuses to start a second move while one is
+    // running; this one does not go through go(), and taking the frame mid-flight would
+    // leave the flight suspended with its completion callback pending.
+    hud.onSelect(() => { if (mode === 'home') show(); });
+
+    // Back and Escape. Both ways into this screen come from home and neither moves the surface
+    // camera, so the usual case is not a flight: the home HUD goes back up directly, because
+    // go('home') from home is a no-op and would leave no screen up at all. The drift phase is
+    // restarted the way go('home') restarts it, so the home view eases back in from its base
+    // pose rather than jumping to wherever the unrendered phase ran on to while the globe held
+    // the frame. Focus lands on the control that leads back here.
+    //
+    // If the camera is somewhere else, it is flown back instead. Nothing in the interface can
+    // reach this screen from another mode -- the button is guarded above -- but the dev hook
+    // can, and restoring the home HUD over a camera parked at the landing site would leave
+    // the panels describing one view and the render showing another.
+    leaveGlobe = () => {
+      if (!active) return;
+      hide();
+      // Camera parked at another viewpoint: fly it back, and let go() put its screen up.
+      if (mode === 'explore' || mode === 'orbit') { go('home'); return; }
+      // Mid-flight. The flight owns the screen and raises it on arrival, so adding one here
+      // would leave two up at once; hide() has already restarted the loop that finishes it.
+      if (mode === 'fly') return;
+      controls.enabled = false;
+      driftT0 = performance.now();
+      look.yaw = look.pitch = 0;
+      hud.showHome();
+      toSelectBtn.focus({ preventScroll: true });
+    };
+    backBtn.addEventListener('click', leaveGlobe);
+
+    // Up from the surface, back to the map, with the site still framed. The surface camera is
+    // left where it is: the map owns its own scene, so nothing has to be un-flown, and coming
+    // back down re-flies from the current position anyway.
+    returnToMap = () => {
+      if (mode === 'rover') leaveRover();
+      cameFromMap = false;
+      mode = 'home';
+      flight = null;
+      hud.hideScreen('explore');
+      hud.hideScreen('rover');
+      show();
+    };
+    document.getElementById('tositemap').addEventListener('click', returnToMap);
+    // Forward, to the analysis of the site just visited. Disabled until a site has actually
+    // been committed to, since there is nothing to analyse before that.
+    const analyseBtn = document.getElementById('toanalysis');
+    analyseBtn.disabled = true;
+    analyseBtn.addEventListener('click', () => { if (mission.site) window.__lln_analysis?.(mission.site); });
+    mission.onSite(() => { analyseBtn.disabled = false; });
+
     // Reachable before P2 exists, for development
     window.__lln_showGlobe = show;
+    window.__lln_setYear = buildSiteList;
     window.__lln_hideGlobe = hide;
     window.__lln_globe = globe;
   }
 
   // P3, criteria and AI analysis. Shows #analysis. Reads mission.cfg and scores against it.
+  //
+  // This renders the ranking the map already computed, rather than scoring again: the map and
+  // this screen have to agree on why a site wins, and two independent scorers would drift. What
+  // it adds is the per-requirement breakdown, which the list has no room for, and an assessment
+  // paragraph. Both are assembled from measured values only -- no model call, so the analysis
+  // renders with the network off, which is the requirement the submission has to meet.
   {
-    // P3 wires up here
+    const an = id => document.getElementById(id);
+    let current = null;
+
+    function render(sel) {
+      current = sel;
+      const { site, entry, year, needs } = sel;
+      an('an-site').textContent = site.en;
+      an('an-verdict').textContent = entry.meetsAll ? 'Suitable as configured' : 'Does not meet the mission';
+      an('an-year').textContent = year != null
+        ? `${year} ANNUAL MEANS · ${site.lat.toFixed(2)}° S · ${site.lon.toFixed(2)}° E`
+        : `${site.lat.toFixed(2)}° S · ${site.lon.toFixed(2)}° E`;
+
+      const reqs = an('an-reqs');
+      reqs.textContent = '';
+      const rows = entry.verdicts.length ? entry.verdicts : [{ label: 'No requirements set', pass: true, value: '' }];
+      for (const v of rows) {
+        const row = document.createElement('div');
+        row.innerHTML = '<dt></dt><dd><span class="val"></span><em></em></dd>';
+        row.querySelector('dt').textContent = v.label;
+        row.querySelector('.val').textContent = v.value;
+        const em = row.querySelector('em');
+        em.dataset.state = v.pass ? 'on' : 'off';
+        em.textContent = v.pass ? 'PASS' : 'FAIL';
+        reqs.appendChild(row);
+      }
+
+      an('an-ai').textContent = explain(entry, needs);
+      const st = entry.stats;
+      an('an-credit').textContent =
+        `${st.sun_visible_pct.toFixed(1)}% sunlight · ${st.earth_visible_pct.toFixed(1)}% Earth link · `
+        + `${st.both_pct.toFixed(1)}% both · longest dark ${st.longest_dark_h} h. `
+        + 'Whole-calendar-year means from LOLA horizon profiles and DE421, not a surface-window calculation.';
+    }
+
+    const isOpen = () => !an('analysis').hidden;
+    function open(sel) {
+      render(sel);
+      hud.hideScreen('explore');
+      hud.showScreen('analysis');
+      an('an-back').focus({ preventScroll: true });
+    }
+    // Closing returns to the surface, which is where this screen is reached from. It is the
+    // one thing that must not drift: leaving the panel up over a screen it replaced is how the
+    // two end up stacked.
+    function close() {
+      if (!isOpen()) return;
+      hud.hideScreen('analysis');
+      hud.showExplore();
+      an('an-back').blur();
+    }
+    analysisOpen = isOpen;
+    closeAnalysis = close;
+
+    // Subscribes only so a committed site is available; it deliberately does not open the
+    // screen. Publishing happens as the descent begins, so opening here would take the user to
+    // the analysis before they had seen the site they picked, with the flight running unseen
+    // behind it -- and the button that is meant to lead here would then be opening a screen
+    // that had already opened itself.
+    mission.onSite((sel) => { current = sel; });
+    an('an-back').addEventListener('click', close);
+    an('an-map').addEventListener('click', () => {
+      hud.hideScreen('analysis');
+      returnToMap();
+    });
+    window.__lln_analysis = open;
   }
 
   // Debug entry point

@@ -430,6 +430,7 @@ export function createHud({ bootSteps }) {
     showOrbit: () => { sec = orbit; reveal(orbit); nFrame = 0; $('#oback').focus({ preventScroll: true }); },
     hideOrbit: () => conceal(orbit),
     onOrbit: (fn) => $('#toorbit').addEventListener('click', fn),
+    onSelect: (fn) => $('#toselect').addEventListener('click', fn),
     onDescend: (fn) => $('#descend').addEventListener('click', fn),
     onOrbitBack: (fn) => $('#oback').addEventListener('click', fn),
     showExplore: () => { reveal(explore); $('#back').focus({ preventScroll: true }); },

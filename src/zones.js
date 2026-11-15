@@ -21,12 +21,17 @@ import * as THREE from 'three';
 // Zone colours. Ice reads cold blue, prime ground is the interface red so the eye lands on
 // it first, the two partial classes are greys of different weight, rough is nearly invisible.
 // Alpha carries how strongly a class tints the terrain underneath.
+// sunlit and flat are the two classes that break up into thousands of isolated 480 m cells
+// rather than large contiguous patches (neither slope nor solar visibility holds still over
+// a crater field), so they are kept faint: a texture to glance at, not something meant to be
+// read cell by cell. shadow and prime are large and contiguous, and carry the actual decision,
+// so they keep the strength to read clearly against that quieter backdrop.
 export const ZONE_STYLE = {
-  shadow: { name: 'PERMANENT SHADOW', rgba: [0x3d, 0x8b, 0xc4, 0.52], note: 'Never sees the Sun. Water ice can be stable where it is also cold enough, which is about two fifths of this ground.' },
-  prime:  { name: 'PRIME GROUND',     rgba: [0xe2, 0x20, 0x0f, 0.58], note: 'Flat, well lit and in direct view of Earth. The combination is rare.' },
-  sunlit: { name: 'SUNLIT',           rgba: [0xf2, 0xf4, 0xf5, 0.30], note: 'Well lit, but either too steep to land on or without a direct Earth link.' },
-  flat:   { name: 'FLAT GROUND',      rgba: [0x8b, 0x97, 0x9e, 0.18], note: 'Landable slope, but poorly lit, so surface power is limited.' },
-  rough:  { name: 'ROUGH',            rgba: [0x4a, 0x52, 0x57, 0.10], note: 'Too steep to land on and poorly lit.' },
+  shadow: { name: 'PERMANENT SHADOW', rgba: [0x3d, 0x8b, 0xc4, 0.56], note: 'Never sees the Sun. Water ice can be stable where it is also cold enough, which is about two fifths of this ground.' },
+  prime:  { name: 'PRIME GROUND',     rgba: [0xe2, 0x20, 0x0f, 0.62], note: 'Flat, well lit and in direct view of Earth. The combination is rare.' },
+  sunlit: { name: 'SUNLIT',           rgba: [0xf2, 0xf4, 0xf5, 0.09], note: 'Well lit, but either too steep to land on or without a direct Earth link.' },
+  flat:   { name: 'FLAT GROUND',      rgba: [0x8b, 0x97, 0x9e, 0.07], note: 'Landable slope, but poorly lit, so surface power is limited.' },
+  rough:  { name: 'ROUGH',            rgba: [0x4a, 0x52, 0x57, 0.0], note: 'Too steep to land on and poorly lit.' },
 };
 
 export function createZones(bytes, meta) {

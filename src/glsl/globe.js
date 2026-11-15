@@ -6,10 +6,10 @@
 // rest of the project works in, so a point on the sphere is placed in it by its own latitude
 // and longitude: rho = 2R tan((90 - |lat|) / 2), x = rho sin(lon), y = rho cos(lon), which is
 // latLonToMap from src/geo.js written in GLSL (stereoKm below). The zone grid reaches 151.68
-// km from the pole. A sphere of radius R viewed from distance D along the polar axis shows
-// terrain out to colatitude acos(R/D) at its limb; at the closest view, D = 1.35 R, that is
-// 42 deg -- so the relief basemap, which reaches 45 deg (1440 km), covers what the camera
-// can actually see, with the last few degrees fading toward the sphere's own edge anyway.
+// km from the pole, the relief basemap 457 km (75 deg south to the pole). What the closest
+// view needs is set by the field of view, not by the sphere's limb: at D = 1.35 R with a
+// 32 deg vertical fov the frame corners sit at about 10 deg of colatitude, roughly 300 km
+// from the pole, so 457 km covers it with room to fade out before its own edge shows.
 
 export const globeVert = /* glsl */ `
 out vec3 vN;
@@ -24,6 +24,8 @@ void main() {
 export const globeFrag = /* glsl */ `
 precision highp float;
 uniform sampler2D uMap;        // WAC mosaic, equirectangular
+uniform float uMapMean;        // the mosaic's own mean level, the point contrast pulls toward
+uniform float uMapFlat;        // how much of the mosaic's contrast to keep, 1 for all of it
 uniform sampler2D uPolar;      // slope-shaded relief, south polar stereographic
 uniform float uPolarE;         // half extent of uPolar, km
 uniform sampler2D uZones;      // zone classes, RGBA, nearest filtered
@@ -71,6 +73,13 @@ void main() {
     vec2 puv = vec2(pm.x / (2.0 * uPolarE) + 0.5, 0.5 - pm.y / (2.0 * uPolarE));
     float relief = texture(uPolar, puv).r;
     float toEquirect = smoothstep(uPolarE * 0.72, uPolarE, rho);
+    // The two textures have the same mean but very different local contrast -- over this band
+    // the mosaic's standard deviation is about 56/255 against the cap's 31 -- so where they
+    // cross-fade the seam shows as a change of character even when the brightness matches.
+    // The mosaic is pulled toward its own mean only inside the blend zone, never outside it:
+    // compressing the whole body flattens the Moon everywhere for the sake of one edge.
+    float near = 1.0 - smoothstep(uPolarE * 0.55, uPolarE * 1.15, rho);
+    albedo = mix(albedo, mix(uMapMean, albedo, uMapFlat), near);
     albedo = mix(relief, albedo, toEquirect);
   }
 
@@ -92,42 +101,32 @@ void main() {
     vec2 m = pm;
     if (abs(m.x) < uZoneE && abs(m.y) < uZoneE) {
       vec2 zuv = vec2(m.x / (2.0 * uZoneE) + 0.5, 0.5 - m.y / (2.0 * uZoneE));
-      vec2 texel = vec2(1.0) / vec2(textureSize(uZones, 0));
       vec4 z = texture(uZones, zuv);
       float a = z.a * uZoneA;
-      bool dimmed = false;
       if (uZoneSel > 0) {
         vec3 want = uZoneSel == 1 ? vec3(0.239, 0.545, 0.769)
                   : uZoneSel == 2 ? vec3(0.886, 0.125, 0.059)
                   : uZoneSel == 3 ? vec3(0.949, 0.957, 0.961)
                   : uZoneSel == 4 ? vec3(0.545, 0.592, 0.620)
                                   : vec3(0.290, 0.322, 0.341);
-        dimmed = distance(z.rgb, want) >= 0.02;
-        a *= dimmed ? uZoneDim : 1.0;
+        a *= distance(z.rgb, want) < 0.02 ? 1.0 : uZoneDim;
       }
       // Fade the overlay out over the last 8 km so the cap has no cut edge
       float edgeFade = 1.0 - smoothstep(uZoneE - 8.0, uZoneE, max(abs(m.x), abs(m.y)));
       a *= edgeFade;
-      // Keep the relief visible through the tint: the zone colour is laid over a base that
-      // still carries the local brightness, lifted off zero so a shadowed crater floor
-      // reads as blue rather than as black. Without the lift the darkest ground, which is
-      // the ground this map most needs to label, would show no colour at all.
-      float groundRelief = 0.35 + 0.65 * albedo;
+      // Keep the relief visible through the tint without letting it dictate the colour. The
+      // basemap is levelled to the dark lunar regolith it depicts (mean about 57/255), so a
+      // tint multiplied straight into it comes out nearly black -- and the classes are the
+      // point of this screen. The lift dominates and the albedo only modulates, so a crater
+      // floor still reads as blue while its rim shading stays visible through it.
+      float groundRelief = 0.78 + 0.5 * albedo;
       col = mix(col, z.rgb * groundRelief, a);
 
-      // Contour: compare this class against its four neighbours at one texel's distance.
-      // Where any differs, draw a short bright line instead of letting the two fills blend
-      // into each other -- the only place this view puts a hard, UI-coloured edge on data.
-      vec3 c0 = z.rgb;
-      vec3 cN = texture(uZones, zuv + vec2(0.0, texel.y)).rgb;
-      vec3 cS = texture(uZones, zuv - vec2(0.0, texel.y)).rgb;
-      vec3 cE = texture(uZones, zuv + vec2(texel.x, 0.0)).rgb;
-      vec3 cW = texture(uZones, zuv - vec2(texel.x, 0.0)).rgb;
-      float edge = step(0.02, distance(c0, cN)) + step(0.02, distance(c0, cS))
-                 + step(0.02, distance(c0, cE)) + step(0.02, distance(c0, cW));
-      if (edge > 0.0 && !dimmed) {
-        col = mix(col, vec3(0.949, 0.957, 0.961), min(1.0, edge) * uZoneA * edgeFade * 0.85);
-      }
+      // No contour is drawn here. An earlier version outlined every class boundary, which
+      // at 480 m cells meant outlining each individual speckle: the sunlit and flat classes
+      // break up into thousands of isolated cells at this resolution, and edging all of them
+      // turned the cap into noise. The classes that carry a decision -- permanent shadow and
+      // prime ground -- are large and contiguous enough to read from their fill alone.
     }
   }
 

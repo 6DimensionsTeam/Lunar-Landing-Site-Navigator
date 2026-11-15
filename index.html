@@ -68,6 +68,7 @@
             <button id="enter" class="cta" type="button">
               <span class="cta-en">Enter Navigation</span>
             </button>
+            <button id="toselect" class="cta2" type="button">Choose a Site <span class="cta-sub">ZONE MAP</span></button>
             <button id="toorbit" class="cta2" type="button">Relay Station <span class="cta-sub">HALO</span></button>
           </div>
 
@@ -101,6 +102,8 @@
         </header>
         <p class="hint"><span><b>Drag</b> rotate</span> <span><b>Scroll</b> zoom</span> <span><b>Right-drag</b> pan</span></p>
         <button id="torover" class="cta2 rover-cta" type="button">Rover Close-up</button>
+        <button id="tositemap" class="cta2 sitemap-cta" type="button">Back to Site Map</button>
+        <button id="toanalysis" class="cta2 analysis-cta" type="button">Analyse This Site</button>
       </section>
 
       <section id="orbit" hidden aria-label="Relay station">
@@ -263,7 +266,9 @@
            coloured by terrain type with hover tips, preset candidate points,
            comparison panel. Reads zoneAt() from P0 and rankSites() from P3. -->
       <section id="select" hidden aria-label="Landing site selection">
+        <div class="grid" aria-hidden="true"></div>
         <header class="topbar">
+          <button id="sel-back" class="back" type="button">Back <kbd>ESC</kbd></button>
           <p class="loc"><b>South Pole</b> <span>LANDING ZONE SURVEY</span></p>
           <p class="clock"><time data-k="clock" data-tab>----</time> <span class="dim">UTC</span></p>
         </header>
@@ -277,19 +282,32 @@
 
         <div class="sites-mk" id="sel-sites"></div>
 
-        <p class="hover-tip" id="sel-tip" hidden>
+        <!-- Coordinate tape: the same ruler motif the frame uses, graduated with the
+             stereographic distance the map is drawn in, so the cap has a scale on it
+             rather than only a legend. Labelled by the script once the map is live. -->
+        <div class="tape" id="sel-tape" aria-hidden="true">
+          <i data-side="down"></i><i data-side="up"></i><i data-side="down"></i><i data-side="up"></i>
+          <i data-side="down"></i><i data-side="up"></i><i data-side="down"></i><i data-side="up"></i>
+        </div>
+
+        <!-- Hover readout. A div wrapping a dl, not a p: dt and dd are not allowed inside a
+             p, and the parser closes the p at the first dt, which leaves the rows outside the
+             tooltip as ordinary flow content in the top-left corner of the screen. -->
+        <div class="hover-tip" id="sel-tip" hidden>
           <b id="sel-tip-zone">&mdash;</b>
-          <span class="rows">
-            <span><dt>Slope</dt><dd id="sel-tip-slope">&mdash;</dd></span>
-            <span><dt>Sun</dt><dd id="sel-tip-sun">&mdash;</dd></span>
-            <span><dt>Earth</dt><dd id="sel-tip-earth">&mdash;</dd></span>
-          </span>
-        </p>
+          <dl class="rows">
+            <div><dt>Slope</dt><dd id="sel-tip-slope">&mdash;</dd></div>
+            <div><dt>Sun</dt><dd id="sel-tip-sun">&mdash;</dd></div>
+            <div><dt>Earth</dt><dd id="sel-tip-earth">&mdash;</dd></div>
+          </dl>
+          <p class="tip-ll" id="sel-tip-ll">&mdash;</p>
+        </div>
 
         <div class="dock">
           <section class="panel legend" aria-labelledby="sel-leg-h">
             <h2 id="sel-leg-h">Landing Zones</h2>
             <dl class="rows legend-rows" id="sel-legend"></dl>
+            <p class="credit">Relief is a baked LOLA hillshade, lit for legibility; the shading is not this date's terminator. Zone cells are 480 m area characteristics.</p>
           </section>
 
           <div class="cta-stack">
@@ -298,8 +316,9 @@
           </div>
 
           <section class="panel live" aria-labelledby="sel-site-h">
-            <h2 id="sel-site-h">Candidate Sites</h2>
+            <h2 id="sel-site-h">Candidate Sites<span class="dim" id="sel-site-year"></span></h2>
             <dl class="rows" id="sel-site-list"></dl>
+            <p class="credit">Means over whole calendar years, from LOLA horizon profiles &times; DE421 at <span data-k="eph-step">3 h</span> steps. Not computed over a transfer or surface window.</p>
           </section>
         </div>
       </section>
@@ -309,7 +328,34 @@
            keep the offline path the default.
            Screen ids reserved for this package: analysis-panel, analysis-ai. -->
       <section id="analysis" hidden aria-label="Site analysis">
-        <!-- P3 builds here -->
+        <header class="topbar">
+          <button id="an-back" class="back" type="button">Back <kbd>ESC</kbd></button>
+          <p class="loc"><b id="an-site">Site</b> <span>SUITABILITY ANALYSIS</span></p>
+          <p class="clock"><time data-k="clock" data-tab>----</time> <span class="dim">UTC</span></p>
+        </header>
+
+        <div class="ttl">
+          <p class="ttl-k"><b>ANALYSIS</b> <span>Against the mission as configured</span></p>
+          <h1 id="an-verdict">Selected Site</h1>
+          <p class="ttl-en" id="an-year">MEASURED CONDITIONS</p>
+        </div>
+
+        <div class="dock">
+          <section class="panel analysis-panel" aria-labelledby="an-req-h">
+            <h2 id="an-req-h">Requirement Check</h2>
+            <dl class="rows" id="an-reqs"></dl>
+          </section>
+
+          <div class="cta-stack">
+            <button id="an-map" class="cta2" type="button"><span>Back to Site Map</span></button>
+          </div>
+
+          <section class="panel analysis-ai" aria-labelledby="an-ai-h">
+            <h2 id="an-ai-h">Assessment</h2>
+            <p class="an-text" id="an-ai"></p>
+            <p class="credit" id="an-credit"></p>
+          </section>
+        </div>
       </section>
 
       <div id="veil" aria-hidden="true"></div>

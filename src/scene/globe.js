@@ -27,7 +27,7 @@ const START = { lat: -78, lon: 20 };
 
 export function createGlobe({ renderer, data, zones, radiusKm }) {
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(32, 1, CAM_NEAR, CAM_FAR);
+  const camera = new THREE.PerspectiveCamera(FOV, 1, CAM_NEAR, CAM_FAR);
 
   const loader = new THREE.TextureLoader();
   const mapTex = loader.load(data.moonGlobalUrl);
@@ -45,6 +45,12 @@ export function createGlobe({ renderer, data, zones, radiusKm }) {
 
   const uniforms = {
     uMap: { value: mapTex },
+    // Measured off src/data/moon_global.jpg: mean 78.6/255 overall, and the band the polar
+    // basemap replaces has a standard deviation of 56.5 against that basemap's 30 after the
+    // source-side change. Keeping 0.55 of the mosaic's contrast lands both near 31, which is
+    // what stops the cap edge from showing. See the note in src/glsl/globe.js.
+    uMapMean: { value: 78.6 / 255 },
+    uMapFlat: { value: 0.55 },
     uPolar: { value: polarTex },
     uPolarE: { value: data.moonPolarMeta.half_extent_m / 1000 },
     uZones: { value: zones.texture() },
@@ -54,8 +60,16 @@ export function createGlobe({ renderer, data, zones, radiusKm }) {
     uZoneSel: { value: 0 },
     uZoneDim: { value: 0.22 },
     uSunDir: { value: new THREE.Vector3(1, 0, 0) },
-    uAmbient: { value: 0.1 },
-    uTerm: { value: 0.06 },
+    // This view is a map, not a photograph, and it is lit for reading rather than for the
+    // date. A physically placed Sun makes the thing unusable: the mission window runs over
+    // fourteen years, and for most arrival dates in it the south pole faces away from the
+    // Sun, so picking a date would hand the user an unreadable black sphere. The arrival
+    // date drives the figures in the panels, where it belongs, and the relief itself (baked
+    // as a hillshade in the polar basemap, see tools/fetch_moon_polar.py) carries the shape
+    // cue, so the live Sun term only has to avoid erasing it -- ambient near 1 means the
+    // day/night term barely moves the result either way.
+    uAmbient: { value: 0.88 },
+    uTerm: { value: 0.9 },
   };
 
   const sphere = new THREE.Mesh(
@@ -113,41 +127,85 @@ export function createGlobe({ renderer, data, zones, radiusKm }) {
   }
 
   // Screen-space drag to rotation: a horizontal drag turns about the camera's up, a vertical
-  // drag about its right. Composed in camera space, so dragging always moves the point under
-  // the cursor in the direction it is dragged, wherever the globe has got to.
+  // drag about its right, both premultiplied so they act in camera space rather than in the
+  // body's own frame -- the globe spends this view over the pole, where a body-frame yaw is
+  // not the axis the screen is asking for.
+  //
+  // The angle per pixel is derived rather than tuned, so the point under the cursor actually
+  // stays under it. The near point of the sphere sits at depth (d - 1) from the eye, and a
+  // perspective camera maps h pixels to 2 (d - 1) tan(fov/2) of width at that depth, so a
+  // drag of n pixels is a rotation of n * 2 (d - 1) tan(fov/2) / h radians. Both axes use the
+  // height, which is what the projection scales by. Exact at the centre of the frame and an
+  // underestimate towards the limb, where the surface turns away from the viewer; that is
+  // the right way round, since overshoot is what reads as the globe running off on its own.
   const qTmp = new THREE.Quaternion();
   const axisY = new THREE.Vector3(0, 1, 0), axisX = new THREE.Vector3(1, 0, 0);
+  const TAN_HALF_FOV = Math.tan(THREE.MathUtils.degToRad(FOV) / 2);
   function drag(dx, dy) {
-    const k = 0.005 * (dist / DIST.start);
-    qTmp.setFromAxisAngle(axisY, -dx * k);
+    // The canvas's own CSS height, which is the space the pointer deltas are in. Read live
+    // rather than cached: no second copy of the viewport size to fall out of date.
+    const h = renderer.domElement.clientHeight || 1;
+    const k = (2 * Math.max(0, dist - R_UNIT) * TAN_HALF_FOV) / h;
+    qTmp.setFromAxisAngle(axisY, dx * k);
     orient.premultiply(qTmp);
-    qTmp.setFromAxisAngle(axisX, -dy * k);
+    qTmp.setFromAxisAngle(axisX, dy * k);
     orient.premultiply(qTmp);
     orient.normalize();
   }
 
+  // Pointer input. The handlers are named and held, not anonymous, because this screen is
+  // opened and closed repeatedly: attaching anonymous listeners on each open leaves the
+  // previous set installed with no way to name them again, and they accumulate. Each one
+  // then applies the same wheel step, so the zoom runs at n times speed after n opens.
+  // attach is therefore idempotent per element and hands back a detach that genuinely
+  // removes what it added.
+  let attached = null;
+  const onDown = (e) => {
+    dragging = true; dragged = false; last = { x: e.clientX, y: e.clientY }; spin = 0;
+    attached?.setPointerCapture?.(e.pointerId);
+  };
+  const onMove = (e) => {
+    if (!dragging || !last) return;
+    const dx = e.clientX - last.x, dy = e.clientY - last.y;
+    if (Math.abs(dx) + Math.abs(dy) > 2) dragged = true;
+    drag(dx, dy);
+    last = { x: e.clientX, y: e.clientY };
+  };
+  const onUp = (e) => {
+    dragging = false; last = null;
+    // Checked first: releasing a capture that is not held raises NotFoundError, and
+    // pointercancel can arrive after the browser has already dropped it.
+    if (attached?.hasPointerCapture?.(e.pointerId)) attached.releasePointerCapture(e.pointerId);
+  };
+  const onWheel = (e) => {
+    e.preventDefault();
+    dist = THREE.MathUtils.clamp(dist * Math.exp(e.deltaY * 0.0012), DIST.min, DIST.max);
+    spin = 0;
+  };
+
+  function detach() {
+    dragging = false;
+    last = null;
+    const el = attached;
+    if (!el) return;
+    attached = null;
+    el.removeEventListener('pointerdown', onDown);
+    el.removeEventListener('pointermove', onMove);
+    el.removeEventListener('pointerup', onUp);
+    el.removeEventListener('pointercancel', onUp);
+    el.removeEventListener('wheel', onWheel);
+  }
+
   function attach(el) {
-    const pos = (e) => ({ x: e.clientX, y: e.clientY });
-    el.addEventListener('pointerdown', (e) => {
-      dragging = true; dragged = false; last = pos(e); spin = 0;
-      el.setPointerCapture?.(e.pointerId);
-    });
-    el.addEventListener('pointermove', (e) => {
-      if (!dragging || !last) return;
-      const p = pos(e);
-      const dx = p.x - last.x, dy = p.y - last.y;
-      if (Math.abs(dx) + Math.abs(dy) > 2) dragged = true;
-      drag(dx, dy);
-      last = p;
-    });
-    const end = (e) => { dragging = false; last = null; el.releasePointerCapture?.(e.pointerId); };
-    el.addEventListener('pointerup', end);
-    el.addEventListener('pointercancel', end);
-    el.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      dist = THREE.MathUtils.clamp(dist * Math.exp(e.deltaY * 0.0012), DIST.min, DIST.max);
-    }, { passive: false });
-    return () => { dragging = false; last = null; };
+    if (attached === el) return detach;      // already listening on this element
+    detach();                                 // moved to a different element: drop the old one
+    attached = el;
+    el.addEventListener('pointerdown', onDown);
+    el.addEventListener('pointermove', onMove);
+    el.addEventListener('pointerup', onUp);
+    el.addEventListener('pointercancel', onUp);
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return detach;
   }
 
   // Which candidate marker is under a screen point, or null. Returns the nearest within a
@@ -226,7 +284,7 @@ export function createGlobe({ renderer, data, zones, radiusKm }) {
   }
 
   return {
-    scene, camera, sphere, uniforms, attach, pick, surfaceAt, screenOf, step, resize, render,
+    scene, camera, sphere, uniforms, attach, detach, pick, surfaceAt, screenOf, step, resize, render,
     siteDirs,
     get dragged() { return dragged; },
     stopSpin: () => { spin = 0; },
