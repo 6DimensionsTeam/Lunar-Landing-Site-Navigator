@@ -253,6 +253,14 @@ export function createGlobe({ renderer, data, zones, radiusKm }) {
     const p = v.clone().multiplyScalar(R_UNIT * 1.002).project(camera);
     return { x: (p.x * 0.5 + 0.5) * w, y: (0.5 - p.y * 0.5) * h, front };
   }
+  // Same projection for any point, registered with setSites() or not -- used for surveyed
+  // ground, which is drawn on the map but is not part of the ranked marker set.
+  function screenOfLatLon(lat, lon, w, h) {
+    const v = dirFromLatLon(lat, lon).applyQuaternion(orient);
+    const front = v.z >= 0.08;
+    const p = v.clone().multiplyScalar(R_UNIT * 1.002).project(camera);
+    return { x: (p.x * 0.5 + 0.5) * w, y: (0.5 - p.y * 0.5) * h, front };
+  }
 
   // Moon-fixed (ME) to this globe's body frame. ME has +z through the north pole; the sphere
   // here has +y north, to match the latitude its own UVs carry. Read off dirFromLatLon:
@@ -290,7 +298,7 @@ export function createGlobe({ renderer, data, zones, radiusKm }) {
 
   return {
     scene, camera, sphere, uniforms, attach, detach, pick, surfaceAt, screenOf, step, resize, render,
-    setSites,
+    setSites, screenOfLatLon,
     get siteDirs() { return siteDirs; },
     get dragged() { return dragged; },
     stopSpin: () => { spin = 0; },
