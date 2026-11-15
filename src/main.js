@@ -804,6 +804,14 @@ async function boot() {
     // P2 wires up here
     if (!(import.meta.env.DEV && new URLSearchParams(location.search).has('trim'))) {
       const { createMission } = await import('./mission.js');
+      const { installExploreNavigation } = await import('./explore-navigation.js');
+      installExploreNavigation({ root: hud.screen('explore'), onReturn: backFromSurface });
+      const { installCameraBounds } = await import('./camera-bounds.js');
+      installCameraBounds({
+        camera, controls, tiles: data.tiles, radiusKm: R, heightAt,
+        // P1 keeps ownSurface after landing; its interactive view still needs bounds.
+        isActive: () => mode === 'explore' && controls.enabled && !flight && !globeShown,
+      });
       const missionFlow = createMission({
         eph,
         data,
@@ -811,6 +819,8 @@ async function boot() {
           const hasSelection = typeof mission.handler === 'function';
           hud.hideScreen('mission');
           syncScene(config.arriveH);
+          // P1 stops the surface loop that normally refreshes the shared UTC display.
+          hud.tick(config.arriveH, eph.hoursToDate(config.arriveH));
           mission.ready(config);
           // The host remains in home mode behind P2, so go('home') can be a no-op.
           if (!hasSelection && mode === 'home') {
@@ -823,27 +833,37 @@ async function boot() {
       });
       hud.hideHome();
       hud.showScreen('mission');
-      // Reuse the rendered terrain as the arrival form's poster instead of redrawing
-      // six million terrain triangles behind an otherwise static form.
+      // Cache terrain only while P2's visible arrival form uses the home view as
+      // a poster. P2's stage can stay stale after another screen conceals it;
+      // it must never stop the host's camera flights or interactive views.
       // The original callback schedules the next frame through this shared binding.
       const surfaceFrame = frame;
       const missionRoot = hud.screen('mission');
       const profile = new URLSearchParams(location.search).has('perf');
-      let surfaceDirty = true, surfaceFrames = 0, sampleStart = performance.now();
+      let surfaceDirty = true, surfaceFrames = 0, sampleStart = performance.now(), lastSurfaceTick = -1;
       const invalidateSurface = () => { surfaceDirty = true; };
       missionRoot.addEventListener('missionstagechange', invalidateSurface);
       window.addEventListener('resize', invalidateSurface);
       document.addEventListener('visibilitychange', invalidateSurface);
       frame = t => {
+        // A rapid P1 show/hide can queue resumeFrame before the old callback drains.
+        // Only one callback per display frame may continue the surface chain.
+        if (t === lastSurfaceTick) return;
+        lastSurfaceTick = t;
+        // P1 owns its own loop during and after descent. Stop this chain and
+        // let the existing resumeFrame() re-arm it when P1 releases the screen.
+        if (globeShown || ownSurface) { surfaceStopped = true; return; }
         const stage = missionFlow.stage;
-        const covered = stage === 'boot' || stage === 'orbit' || stage === 'pad' || stage === 'flight';
+        const missionVisible = !missionRoot.hidden && !missionRoot.classList.contains('out');
+        const covered = missionVisible && (stage === 'boot' || stage === 'orbit' || stage === 'pad' || stage === 'flight');
+        const poster = missionVisible && stage === 'intro' && mode === 'home' && !flight;
         const paused = document.hidden || covered;
         if (profile && t - sampleStart >= 1000) {
           missionRoot.dataset.surfaceFps = (surfaceFrames * 1000 / (t - sampleStart)).toFixed(1);
           surfaceFrames = 0;
           sampleStart = t;
         }
-        if (paused || (stage === 'intro' && !surfaceDirty)) {
+        if (paused || (poster && !surfaceDirty)) {
           requestAnimationFrame(frame);
           return;
         }

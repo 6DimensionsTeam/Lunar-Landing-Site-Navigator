@@ -81,6 +81,40 @@ export function propagateTwoBody(positionKm, velocityKmS, seconds) {
 }
 
 /**
+ * Sample an already solved transfer by elapsed-time fraction, clamped to [0, 1].
+ * Cubic Hermite interpolation uses the stored Cartesian positions and velocities;
+ * its analytic derivative supplies a consistent velocity without a Kepler solve.
+ * This is a display interpolation, not an additional trajectory integration.
+ */
+export function sampleTransfer(transfer, progress) {
+  if (!Number.isFinite(progress)) throw new TypeError('Transfer progress must be finite.');
+  const { positionsKm, velocitiesKmS, timesSeconds, flightTimeSeconds } = transfer;
+  if (!Array.isArray(timesSeconds) || timesSeconds.length < 2 ||
+      positionsKm?.length !== timesSeconds.length || velocitiesKmS?.length !== timesSeconds.length ||
+      !(flightTimeSeconds > 0)) throw new TypeError('A solved transfer with timed Cartesian samples is required.');
+  const fraction = Math.max(0, Math.min(1, progress));
+  const elapsedS = fraction * flightTimeSeconds;
+  let lo = 0, hi = timesSeconds.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (timesSeconds[mid] <= elapsedS) lo = mid; else hi = mid;
+  }
+  const dt = timesSeconds[hi] - timesSeconds[lo];
+  const u = (elapsedS - timesSeconds[lo]) / dt, u2 = u * u, u3 = u2 * u;
+  const positionKm = [], velocityKmS = [];
+  for (let axis = 0; axis < 3; axis++) {
+    const p0 = positionsKm[lo][axis], p1 = positionsKm[hi][axis];
+    const v0 = velocitiesKmS[lo][axis], v1 = velocitiesKmS[hi][axis];
+    positionKm.push((2 * u3 - 3 * u2 + 1) * p0 + (u3 - 2 * u2 + u) * dt * v0 +
+      (-2 * u3 + 3 * u2) * p1 + (u3 - u2) * dt * v1);
+    velocityKmS.push((6 * u2 - 6 * u) * (p0 - p1) / dt +
+      (3 * u2 - 4 * u + 1) * v0 + (3 * u2 - 2 * u) * v1);
+  }
+  return { progress: fraction, elapsedS, positionKm, velocityKmS,
+    speedKmS: length(velocityKmS), geocentricDistanceKm: length(positionKm) };
+}
+
+/**
  * The arrival vector must be geocentric and expressed in one fixed orthonormal basis.
  * A scene frame frozen at the arrival epoch is valid; do not rotate each sample into
  * its own moving Moon-fixed frame. The input magnitude must be the real distance.
@@ -119,6 +153,13 @@ export function solveLunarTransfer({ moonPositionKm, durationH, planeNormal = [0
   const initialEnergy = dot(departureVelocityKmS, departureVelocityKmS) / 2 - EARTH_MU / r1;
   const energyScale = EARTH_MU / r1; // Stable normalization even for near-parabolic energy.
   const initialMomentum = length(cross(departurePositionKm, departureVelocityKmS));
+  const eccentricity = Math.sqrt(Math.max(0, 1 + 2 * initialEnergy * initialMomentum ** 2 / EARTH_MU ** 2));
+  const bound = initialEnergy < 0;
+  const semiMajorAxisKm = initialEnergy === 0 ? null : -EARTH_MU / (2 * initialEnergy);
+  const perigeeRadiusKm = initialMomentum ** 2 / (EARTH_MU * (1 + eccentricity));
+  // These are Earth-centred osculating apsides of this two-body conic, not lunar
+  // capture/landing altitudes. An unbound conic has a perigee but no apogee.
+  const apogeeRadiusKm = bound ? semiMajorAxisKm * (1 + eccentricity) : null;
   let energyRelativeError = 0, angularMomentumRelativeError = 0;
   const positionsKm = [], velocitiesKmS = [], timesSeconds = [];
   for (let i = 0; i <= samples; i++) {
@@ -140,6 +181,11 @@ export function solveLunarTransfer({ moonPositionKm, durationH, planeNormal = [0
     model: 'earth-two-body', positionsKm, velocitiesKmS, timesSeconds,
     departurePositionKm, departureVelocityKmS, arrivalVelocityKmS: velocitiesKmS.at(-1),
     parkingRadiusKm: r1, parkingAltitudeKm, flightTimeSeconds: seconds, transferAngleRad: angle,
+    departureSpeedKmS: length(departureVelocityKmS), arrivalSpeedKmS: length(velocitiesKmS.at(-1)),
+    departureDistanceKm: r1, arrivalDistanceKm: length(positionsKm.at(-1)),
+    specificEnergyKm2S2: initialEnergy, eccentricity, bound, semiMajorAxisKm,
+    perigeeRadiusKm, perigeeAltitudeKm: perigeeRadiusKm - EARTH_RADIUS_KM,
+    apogeeRadiusKm, apogeeAltitudeKm: bound ? apogeeRadiusKm - EARTH_RADIUS_KM : null,
     injectionDeltaVKmS: length(departureVelocityKmS) - Math.sqrt(EARTH_MU / r1),
     endpointErrorKm, energyRelativeError, angularMomentumRelativeError,
   };
