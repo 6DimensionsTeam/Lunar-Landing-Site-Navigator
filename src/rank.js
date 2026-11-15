@@ -16,14 +16,27 @@
 //   { craterFloor, iceNearby, continuousComm, maxDarkH }
 // Each is optional; an absent or false requirement imposes no constraint.
 
-// How much of the window a site must be usable for to count as continuous. No candidate in
-// this dataset reaches even 85 per cent -- terrain occludes Earth from the lunar south pole
-// for long stretches, and the best of the four (Malapart) manages 84.75 -- so a threshold set
-// anywhere near a literal "always" would rule out every site and the requirement would be a
-// control that can never do anything. 80 per cent is the level the data actually separates
-// on: it admits the one site with a direct link and rules out the three without, which is the
-// distinction the requirement is trying to draw.
+// The Earth-link bar, when the caller does not state one.
+//
+// There is no published figure for how much of the period a landing site must see Earth: the
+// requirement belongs to a mission's communications design, not to the ground, and this project
+// has no such design to cite. So this number is ours, and the honest thing is to say which number
+// it is and let the user replace it. `continuousComm` therefore takes a percentage as well as a
+// boolean: a number is the user's own bar, `true` falls back to this default, and the field keeps
+// its place in the needs contract either way.
+//
+// The default is 80. Note what that does on the shipped pool, because it is the reason the bar
+// should be the user's and not a fact the product asserts: Malapert Massif measures 84.8% and
+// every other site lands between 51.9% and 57.6%, so 80 sits inside a 27-point empty gap and the
+// requirement behaves as a switch that selects exactly one site. That is a property of this
+// terrain -- the south pole occludes Earth from most of it for long stretches -- not a standard
+// any site is failing to meet.
 const CONTINUOUS_COMM_PCT = 80;
+// Resolve the caller's Earth-link bar: a finite percentage is taken as given, anything else
+// truthy means "use our default", and a falsy value means the requirement was not asked for.
+function commBar(need) {
+  return Number.isFinite(need) ? need : CONTINUOUS_COMM_PCT;
+}
 // A crater floor is only claimed where the ground classification actually says so.
 const ICE_NEAR_KM = 25;
 
@@ -76,8 +89,9 @@ function evaluate(site, zones, year, needs) {
   const notes = [];
   const verdicts = [];
 
-  if (needs.continuousComm && comms < CONTINUOUS_COMM_PCT) {
-    fails.push(`Earth link ${comms.toFixed(1)}%, below the ${CONTINUOUS_COMM_PCT}% needed for continuous contact`);
+  const commNeeded = needs.continuousComm ? commBar(needs.continuousComm) : null;
+  if (commNeeded !== null && comms < commNeeded) {
+    fails.push(`Earth link ${comms.toFixed(1)}%, below the ${commNeeded}% needed for continuous contact`);
   }
   if (Number.isFinite(needs.maxDarkH) && needs.maxDarkH > 0 && st.longest_dark_h > needs.maxDarkH) {
     fails.push(`Longest dark ${st.longest_dark_h} h, beyond the ${needs.maxDarkH} h the mission allows`);
@@ -105,8 +119,8 @@ function evaluate(site, zones, year, needs) {
   // be pushed unconditionally with pass computed as "true unless the requirement applies", so a
   // mission with no requirements still rendered two green PASS rows -- a verdict on a demand
   // nobody made -- and the caller's own "no requirements set" branch could never be reached.
-  if (needs.continuousComm) {
-    verdicts.push({ key: 'comms', label: 'Earth link', pass: comms >= CONTINUOUS_COMM_PCT, value: `${comms.toFixed(1)}%` });
+  if (commNeeded !== null) {
+    verdicts.push({ key: 'comms', label: 'Earth link', pass: comms >= commNeeded, value: `${comms.toFixed(1)}%` });
   }
   if (Number.isFinite(needs.maxDarkH) && needs.maxDarkH > 0) {
     verdicts.push({ key: 'dark', label: 'Dark limit', pass: st.longest_dark_h <= needs.maxDarkH, value: `${st.longest_dark_h} h worst` });

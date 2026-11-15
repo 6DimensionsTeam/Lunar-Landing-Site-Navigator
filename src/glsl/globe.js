@@ -89,7 +89,15 @@ void main() {
   // overlay has to stay readable.
   float ndl = dot(N, uSunDir);
   float lit = smoothstep(-uTerm, uTerm, ndl);
-  vec3 col = vec3(albedo) * (uAmbient + (1.0 - uAmbient) * lit);
+  // Display gain on the basemap. The WAC mosaic is levelled to the regolith it depicts, whose
+  // mean sits near 57/255, so shown at unit gain the body reads as near-black against a black
+  // background and the limb disappears into it. This screen uses the mosaic to orient a reader,
+  // not to report a reflectance, so it is lifted to a legible grey: a gain on the midtones with
+  // the highlights left alone, so bright rims do not clip. No measured figure anywhere in the
+  // product is derived from these pixels -- the slope, light and Earth-link numbers come from
+  // the LOLA and ephemeris data, not from this texture.
+  float shown = pow(albedo, 0.62) * 1.18;
+  vec3 col = vec3(min(shown, 1.0)) * (uAmbient + (1.0 - uAmbient) * lit);
 
   // Landing zones over the southern cap. The rest of this HUD never washes data on as a soft
   // colour field: it draws flat blocks with a hairline edge (the site chip, the panel frame,
