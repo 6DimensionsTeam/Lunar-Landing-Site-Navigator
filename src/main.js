@@ -16,6 +16,7 @@ import { createRover, SPEED_LIMITS } from './scene/rover.js';
 import { createZones } from './zones.js';
 import { createGlobe } from './scene/globe.js';
 import { rankSites, statsFor, explain, candidatePool } from './rank.js';
+import { buildWorlds, runWorlds, summarise as worldsSummarise } from './worlds.js';
 
 // Home-screen epoch: 2028-09-29 12:00 UTC. Seen from Shackleton, Earth (a 15%-lit crescent) and the Sun both stand only 1.7–3° above the horizon,
 // about 45° apart in azimuth, straddling the south polar ridge. The clock then runs forward at real speed.
@@ -57,6 +58,8 @@ function measureCrater(heightAt, approx) {
   const rimH = rimSum / n;
   return { center: c, floorH: floor, rimH, radius: rSum / n, depth: rimH - floor };
 }
+
+let worldsOpen = null, worldsClose = null, worldsIsOpen = null;
 
 async function boot() {
   const B = hud.boot;
@@ -326,10 +329,20 @@ async function boot() {
   const TRACK = { home: 0, explore: 0, orbit: 1, rover: 0 };
   // Zone tint on the drawn terrain. The shader has carried this since the zone map was built
   // (see uZoneA in glsl/terrain.js) but nothing ever supplied the texture, so the surface was
-  // always bare grey while the globe screen was coloured from the same data. Strongest standing
-  // at a site, where the question is what kind of ground this is; off in the rover close-up,
-  // where a 480 m cell is larger than the whole view and would read as a flat wash.
-  const ZONEA = { home: 0.28, explore: 0.5, orbit: 0.34, rover: 0 };
+  // always bare grey while the globe screen was coloured from the same data.
+  const ZONEA = { home: 0.28, explore: 0.42, orbit: 0.34, rover: 0 };
+  // ...and faded by how much of the classification the view can actually resolve. A zone cell is
+  // 480 m. Standing close, three cells span the frame and a tint is a flat wash over ground the
+  // screen exists to show, while the legend beside it still promises four classes -- accurate
+  // data, useless picture. So the tint earns its strength only once enough cells are in frame to
+  // read as a classification: nothing below CELLS_OFF across, full value above CELLS_FULL. This
+  // is why the rover close-up needed no special case; it is simply always below the floor.
+  const CELLS_OFF = 8, CELLS_FULL = 26;
+  const zoneFade = () => {
+    const d = camera.position.distanceTo(controls.target);
+    const across = (2 * d * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / (data.zonesMeta.cell_m / 1000);
+    return THREE.MathUtils.smoothstep(across, CELLS_OFF, CELLS_FULL);
+  };
   {
     const nad = sceneToMap(R, station.place.pos).m.clone();
     terrain.uniforms.uNadir.value.copy(nad);
@@ -410,6 +423,29 @@ async function boot() {
       hud.bind('ex-ice', g && Number.isFinite(g.iceDistKm) ? (g.iceLikely ? 'on site' : `${g.iceDistKm.toFixed(1)} km`) : '—');
       const f = faultKm(s);
       hud.bind('ex-fault', f ? `${f.km.toFixed(1)} km${f.id ? ` · scarp ${f.id}` : ''}` : 'no catalogue data');
+      // How high anything has to stand to clear this site's own terrain, and how much of the
+      // compass is already clear at the local horizontal. Read straight off the measured horizon
+      // profile, so no orbit, no spacecraft and no time axis enter it -- which is exactly why it
+      // can be shown at all. A relay coverage percentage would depend on the orbital plane's
+      // orientation, and this project never defines that (see README on the assumed orbit), so
+      // any such figure would be a choice of unstated parameters dressed as a measurement.
+      const prof = s.horizon_cdeg ? s.horizon_cdeg.map((v) => v / 100) : null;
+      if (prof && prof.length) {
+        const worst = Math.max(...prof);
+        const openAt = (mask) => (prof.filter((v) => v < mask).length / prof.length) * 100;
+        hud.bind('ex-clear', worst >= 0
+          ? `${worst >= 0 ? '+' : ''}${worst.toFixed(2)}° at worst azimuth`
+          : 'below horizontal all round');
+        hud.bind('ex-open', `${openAt(0).toFixed(1)}% at 0° · ${openAt(2).toFixed(0)}% at 2°`);
+        hud.bind('ex-clear-src',
+          'Terrain only, from the LOLA horizon profile at 0.5° steps, 2 m antenna height. '
+          + 'No relay orbit is modelled, so this is not a coverage or availability figure: it is '
+          + 'how much sky this ground leaves open, not how often anything is in it.');
+      } else {
+        hud.bind('ex-clear', 'no profile');
+        hud.bind('ex-open', '—');
+        hud.bind('ex-clear-src', 'No horizon profile for this point.');
+      }
       refresh(nowH());
     }
     function refresh(h) {
@@ -643,7 +679,7 @@ async function boot() {
     // frame, so it is off by default and can be switched on with the ?orbit URL flag
     if (relayOrbit) relayOrbit.visible = stVis && orbitFlag;
     terrain.uniforms.uTrack.value = THREE.MathUtils.lerp(TRACK[mode === 'fly' ? from : mode], TRACK[mode === 'fly' ? to : mode], s);
-    terrain.uniforms.uZoneA.value = THREE.MathUtils.lerp(ZONEA[mode === 'fly' ? from : mode], ZONEA[mode === 'fly' ? to : mode], s);
+    terrain.uniforms.uZoneA.value = THREE.MathUtils.lerp(ZONEA[mode === 'fly' ? from : mode], ZONEA[mode === 'fly' ? to : mode], s) * zoneFade();
     terrain.uniforms.uKeyFloor.value = THREE.MathUtils.lerp(KEYF[mode === 'fly' ? from : mode], KEYF[mode === 'fly' ? to : mode], s);
     post.grade.uniforms.uExposure.value = THREE.MathUtils.lerp(EXP[mode === 'fly' ? from : mode], EXP[mode === 'fly' ? to : mode], s);
     post.bloom.threshold = THREE.MathUtils.lerp(BLOOM[mode === 'fly' ? from : mode], BLOOM[mode === 'fly' ? to : mode], s);
@@ -672,7 +708,15 @@ async function boot() {
   setInterval(() => {
     refreshLive(nowH());
     if (mode === 'orbit') refreshOrbit();
-    if (mode === 'explore') surfaceHud.refresh(nowH());
+    if (mode === 'explore') {
+      surfaceHud.refresh(nowH());
+      // Say which of the two states the picture is in, rather than leaving a legend of four
+      // classes beside ground that is showing none of them.
+      const lit = zoneFade() > 0.05;
+      hud.bind('ex-zone-note', lit
+        ? `LOLA slope with Diviner temperature, ${data.zonesMeta.cell_m} m cells: area characteristics, not a per-metre map.`
+        : `Tint off at this range: one ${data.zonesMeta.cell_m} m cell is wider than the view, so a colour here would cover the terrain rather than classify it. Zoom out to bring the classes back.`);
+    }
     if (mode === 'home') for (const s of sites.sites) blocked[s.id] = occluded(camera.position, s.scene);
   }, 400);
 
@@ -722,6 +766,9 @@ async function boot() {
     }
     // The globe owns the frame while it is up, so it takes Escape before the surface modes
     // get a look at it -- otherwise Escape there would fly a camera nobody can see.
+    // The trial sits on top of the zone map, so it takes Escape before the map does -- otherwise
+    // Escape would leave the map with the trial still drawn over it.
+    if (e.key === 'Escape' && worldsIsOpen && worldsIsOpen()) { worldsClose(); hud.showScreen('select'); return; }
     if (e.key === 'Escape' && globeShown) { leaveGlobe(); return; }
     // #analysis sits on top of the surface view, so without its own branch Escape falls into
     // the explore one, which hides the explore screen and returns to the map -- leaving the
@@ -1210,6 +1257,9 @@ async function boot() {
 
     document.getElementById('sel-pole').addEventListener('click', () => globe.flyToPole());
     document.getElementById('sel-overview').addEventListener('click', () => globe.flyToOverview());
+    // The trial reads the same pool this screen ranks, so it is reachable from here rather than
+    // being a separate entry point with its own idea of what the candidates are.
+    document.getElementById('sel-trial').addEventListener('click', () => { if (worldsOpen) worldsOpen(); });
 
     // The globe is a second pass with the same renderer, so it owns the frame while it is up:
     // the surface scene's own loop is left running but its output is overwritten here.
@@ -1696,6 +1746,128 @@ async function boot() {
     // Close when its clock's screen goes away
     setInterval(() => { if (!pop.hidden && !anchor.offsetParent) close(); }, 300);
     sync();
+  }
+
+  // ---- Robustness trial: the same ground against a hundred requirement sets ----
+  // Why this screen exists: a single ranking names the best site for one stated mission, which
+  // is not the question a planner has. Requirements move -- a launch slips a year, a relay is
+  // not approved, an endurance budget is cut -- and a site that wins narrowly under one set and
+  // fails under the next is the worse choice. So every set is run and survival is counted. See
+  // src/worlds.js for exactly what a "requirement set" is and what this deliberately does not
+  // claim (no probabilities, no engineering models).
+  {
+    // The same pool the selector ranks. Rebuilt here rather than reaching into the select
+    // screen's scope: candidatePool is pure, so both reads cannot disagree.
+    const trialPool = candidatePool(data);
+    const grid = document.getElementById('w-grid');
+    const bars = document.getElementById('w-bars');
+    const prog = document.getElementById('w-prog');
+    const label = document.getElementById('w-label');
+    const verdict = document.getElementById('w-verdict');
+    let run = null, token = 0, cells = [], barRows = new Map();
+
+    function build(result) {
+      grid.textContent = '';
+      cells = result.timeline.map(() => {
+        const cell = document.createElement('div');
+        cell.className = 'w-cell';
+        // One dot per site, in the pool's own order, so a reader can follow a single site
+        // across the whole grid by position.
+        const dots = result.sites.map(() => {
+          const d = document.createElement('i');
+          d.className = 'w-dot';
+          cell.appendChild(d);
+          return d;
+        });
+        grid.appendChild(cell);
+        return { cell, dots };
+      });
+      // Bars keep the pool order too, and are re-sorted only at the end: watching rows leapfrog
+      // mid-run would hide which site is actually gaining.
+      bars.textContent = '';
+      barRows = new Map();
+      for (const s of result.sites) {
+        const row = document.createElement('div');
+        row.className = 'w-bar' + (s.site.source === 'data' ? ' found' : '');
+        row.innerHTML = '<div class="w-bar-top"><i></i><b></b><em>0</em></div>'
+          + '<span class="w-bar-track"><span class="w-bar-fill"></span></span>'
+          + '<p class="w-bar-why"></p>';
+        row.querySelector('i').textContent = s.site.id;
+        row.querySelector('b').textContent = s.site.en;
+        bars.appendChild(row);
+        barRows.set(s.site.id, {
+          row, count: row.querySelector('em'),
+          fill: row.querySelector('.w-bar-fill'), why: row.querySelector('.w-bar-why'), n: 0,
+        });
+      }
+    }
+
+    // Replay the trial one set at a time. The pacing is the point: fast enough to watch a
+    // hundred sets without waiting, slow enough that an elimination is legible.
+    async function play(result, instant) {
+      const me = ++token;
+      const total = result.timeline.length;
+      for (const b of barRows.values()) { b.n = 0; b.count.textContent = '0'; b.fill.style.width = '0'; b.why.textContent = ''; }
+      const order = result.sites.map((s) => s.site.id);
+      for (let i = 0; i < total; i++) {
+        if (me !== token) return;                 // a replay or a skip superseded this run
+        const step = result.timeline[i];
+        const c = cells[i];
+        const deadIds = new Set(step.dead.map((d) => d.id));
+        c.cell.classList.add('now');
+        order.forEach((id, k) => c.dots[k].classList.add(deadIds.has(id) ? 'out' : 'lit'));
+        for (const id of order) {
+          if (deadIds.has(id)) continue;
+          const b = barRows.get(id);
+          b.n += 1;
+          b.count.textContent = String(b.n);
+          b.fill.style.width = `${(b.n / total) * 100}%`;
+        }
+        prog.textContent = `${i + 1} / ${total}`;
+        label.textContent = step.world.label;
+        if (!instant) await new Promise((r) => setTimeout(r, reducedMotion.matches ? 0 : 26));
+        if (me !== token) return;
+        c.cell.classList.remove('now');
+        c.cell.classList.add('done', deadIds.size === 0 ? 'all' : deadIds.size >= order.length ? 'none' : 'some');
+      }
+      if (me !== token) return;
+      // Only now reorder, and say why each site fell short.
+      const ranked = [...result.sites];
+      for (const s of ranked) {
+        const b = barRows.get(s.site.id);
+        if (!b) continue;
+        b.why.textContent = s.survived === result.worlds.length
+          ? 'met every requirement in every set'
+          : s.weakness ? `most often ruled out on: ${s.weakness.toLowerCase()}` : '';
+        bars.appendChild(b.row);
+      }
+      barRows.get(ranked[0].site.id)?.row.classList.add('lead');
+      verdict.textContent = worldsSummarise(result);
+      label.textContent = '';
+    }
+
+    function open() {
+      // Built against the mission's own arrival year span and the live pool, so the trial always
+      // reflects the data on screen rather than a cached run.
+      const worlds = buildWorlds({ startYear: eph.startYear, endYear: eph.endYear, count: 100 });
+      run = runWorlds(trialPool, zones, worlds);
+      build(run);
+      verdict.textContent = 'Running…';
+      // The zone map and the trial are both full-screen siblings, so the map has to go or the
+      // two draw over each other.
+      hud.hideScreen('select');
+      hud.showScreen('worlds');
+      play(run, false);
+    }
+    function close() { token++; hud.hideScreen('worlds'); }
+
+    document.getElementById('w-back').addEventListener('click', () => { close(); hud.showScreen('select'); });
+    document.getElementById('w-replay').addEventListener('click', () => { if (run) { build(run); play(run, false); } });
+    document.getElementById('w-skip').addEventListener('click', () => { if (run) { build(run); play(run, true); } });
+
+    worldsOpen = open;
+    worldsClose = close;
+    worldsIsOpen = () => !document.getElementById('worlds').hidden;
   }
 
   // Debug entry point
