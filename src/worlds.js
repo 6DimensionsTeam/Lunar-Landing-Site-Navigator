@@ -83,7 +83,42 @@ export function buildWorlds({ startYear, endYear, count = 100 }) {
     worlds.push(world);
     if (i > count * 4) break;        // guard: the axes always supply enough, but never loop away
   }
+  // Order the set by how much it demands, easiest first. The binary counter above produces
+  // neighbours that differ by a single requirement bit, so read in that order a site survives,
+  // fails, survives, fails -- and a chart drawn along it is stripes that carry no meaning,
+  // because set 47 and set 48 are no more related than set 47 and set 3.
+  //
+  // Sorted by demand, the axis becomes a scale: every site survives the left end, and where its
+  // run breaks is how much tightening it absorbs before it stops qualifying. That is the figure
+  // the trial exists to compare, and it is readable without counting anything.
+  //
+  // This is a presentation order, not a change of content: the same hundred sets are tested, so
+  // every survival count is identical either way.
+  worlds.sort((a, b) => {
+    const ka = sortKey(a), kb = sortKey(b);
+    for (let k = 0; k < ka.length; k++) if (ka[k] !== kb[k]) return ka[k] - kb[k];
+    return 0;
+  });
+  worlds.forEach((w, k) => { w.id = k; });
   return worlds;
+}
+
+// The sort key. Deliberately a grouping, not a difficulty score: it orders the axes by priority
+// rather than adding them up, because adding them up would mean claiming that one boolean demand
+// is worth exactly one darkness step, which nothing here measures.
+//
+// The priority is by how often an axis decides the outcome on this pool. The direct Earth link is
+// first because it is the single most common reason a site is ruled out, so grouping on it puts
+// every set a site can satisfy on one side; night length is second, and it is the axis that
+// separates the pool's extremes (204 h at Shackleton Rim against 318 h at Malapert Massif). The
+// remaining two ground demands break the rest of the ties.
+//
+// The effect on the chart is that each lane holds a long run and then stops, instead of
+// alternating with its neighbours over sets that differ by one unrelated bit.
+function sortKey(world) {
+  const n = world.needs;
+  const darkRank = DARK_STEPS.length - 1 - DARK_STEPS.indexOf(n.maxDarkH);
+  return [n.continuousComm ? 1 : 0, darkRank, n.craterFloor ? 1 : 0, n.iceNearby ? 1 : 0, world.year];
 }
 
 // Run every world and count survivals per site.
