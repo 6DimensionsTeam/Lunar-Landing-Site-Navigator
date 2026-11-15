@@ -12,7 +12,7 @@ import { createSites } from './sites.js';
 import { createRig } from './rig.js';
 import { createHud, reducedMotion } from './hud.js';
 import { createStation, STATION, CORE_TRIM } from './scene/station.js';
-import { createRover } from './scene/rover.js';
+import { createRover, SPEED_LIMITS } from './scene/rover.js';
 import { createZones } from './zones.js';
 import { createGlobe } from './scene/globe.js';
 import { rankSites, statsFor, explain, candidatePool } from './rank.js';
@@ -1425,6 +1425,135 @@ async function boot() {
       returnToMap();
     });
     window.__lln_analysis = open;
+  }
+
+  // Leo, F-03 rover top speed: type a value, or reset to the real rover's speed
+  {
+    const box = document.getElementById('rspeed');
+    const apply = (v) => { if (Number.isFinite(v)) rover.setSpeed(v); box.value = +rover.speed().toFixed(1); };
+    box.addEventListener('change', () => apply(parseFloat(box.value)));
+    // select the old value on focus so typing replaces it (deferred: the click's mouseup would clear it)
+    box.addEventListener('focus', () => setTimeout(() => box.select(), 0));
+    box.addEventListener('keydown', (e) => {
+      e.stopPropagation();   // typing here must not drive the rover or leave the view
+      if (e.key === 'Enter') { apply(parseFloat(box.value)); box.blur(); }
+      else if (e.key === 'Escape') { apply(NaN); box.blur(); }
+    });
+    document.getElementById('rspeed-reset').addEventListener('click', () => apply(SPEED_LIMITS.real));
+    apply(rover.speed());
+    // the rover runs on mission time: a sped-up clock makes it drive that much faster too
+    setInterval(() => rover.setTimeScale(clock.rate), 200);
+  }
+
+  // Leo, F-06 time controls: every top-bar clock opens one shared popover
+  {
+    const MAX_RATE = 100000;
+    const clampH = (h) => THREE.MathUtils.clamp(h, 0, eph.maxH);
+    const toInput = (d) => d.toISOString().slice(0, 16);
+    const fromInput = (v) => (Date.parse(`${v}:00Z`) - eph.start) / 3600e3;
+
+    const pop = document.createElement('div');
+    pop.id = 'timepop';
+    pop.className = 'panel';
+    pop.hidden = true;
+    pop.setAttribute('role', 'dialog');
+    pop.setAttribute('aria-label', 'Mission time');
+    pop.innerHTML = `
+      <h2>Mission Time <span class="tp-utc">UTC</span></h2>
+      <label class="tp-l" for="tp-date">Date and time</label>
+      <div class="tp-row"><input id="tp-date" type="datetime-local" step="60"><button class="mini" type="button" data-act="go">Go</button></div>
+      <p class="tp-note">Any date from ${eph.startYear} to ${eph.endYear}.</p>
+      <label class="tp-l" for="tp-rate">Speed</label>
+      <div class="tp-row numset"><input id="tp-rate" class="num" type="number" inputmode="decimal" min="0" max="${MAX_RATE}" step="any"><span class="num-u">× real time</span></div>
+      <p class="tp-note" id="tp-rate-note"></p>
+      <div class="tp-center"><button class="mini" type="button" data-act="normal">Normal speed</button></div>`;
+    document.getElementById('hud').appendChild(pop);
+    const date = pop.querySelector('#tp-date');
+    date.min = toInput(eph.hoursToDate(0));
+    date.max = toInput(eph.hoursToDate(eph.maxH));
+
+    const rateBox = pop.querySelector('#tp-rate'), rateNote = pop.querySelector('#tp-rate-note');
+    const badges = [];
+    const span = (s) => {
+      const u = [[86400, 'day'], [3600, 'hour'], [60, 'minute'], [1, 'second']].find(([k]) => s >= k) || [1, 'second'];
+      const n = +(s / u[0]).toFixed(1);
+      return `${n} ${u[1]}${n === 1 ? '' : 's'}`;
+    };
+    const sync = () => {
+      if (document.activeElement !== rateBox) rateBox.value = clock.rate;
+      rateNote.textContent = clock.rate === 0 ? 'Paused. Type 0 to pause, 1 for real time.'
+        : clock.rate === 1 ? 'Real time. Try 3600 to watch one hour pass every second.'
+        : `Each real second shows ${span(clock.rate)} of mission time.`;
+      const txt = clock.rate === 0 ? 'PAUSED' : clock.rate === 1 ? '' : `×${clock.rate}`;
+      for (const s of badges) s.textContent = txt;
+    };
+    const set = (h, rate = clock.rate) => { setTime(clampH(h), rate); jumped = false; sync(); };
+
+    let anchor = null;
+    const place = () => {
+      const r = anchor.getBoundingClientRect();
+      pop.style.top = `${Math.round(r.bottom + 8)}px`;
+      pop.style.right = `${Math.max(8, Math.round(window.innerWidth - r.right))}px`;
+    };
+    const open = (btn) => {
+      anchor = btn;
+      date.value = toInput(eph.hoursToDate(nowH()));
+      pop.hidden = false;
+      place();
+      sync();
+      btn.setAttribute('aria-expanded', 'true');
+      date.focus({ preventScroll: true });
+    };
+    const close = () => {
+      if (pop.hidden) return;
+      pop.hidden = true;
+      anchor?.setAttribute('aria-expanded', 'false');
+      anchor?.focus({ preventScroll: true });
+    };
+
+    // Wrap each clock's contents in a button; hud.bind keeps writing into the same <time> element
+    for (const p of document.querySelectorAll('.clock')) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'clockbtn';
+      btn.title = 'Change mission time';
+      btn.setAttribute('aria-haspopup', 'dialog');
+      btn.setAttribute('aria-expanded', 'false');
+      btn.append(...p.childNodes);
+      const badge = document.createElement('span');
+      badge.className = 'clock-rate';
+      badges.push(badge);
+      const edit = document.createElement('span');
+      edit.className = 'clock-edit';
+      edit.textContent = 'Change time';
+      btn.append(badge, edit);
+      p.append(btn);
+      btn.addEventListener('click', (e) => { e.stopPropagation(); if (pop.hidden || anchor !== btn) open(btn); else close(); });
+    }
+
+    pop.addEventListener('click', (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      if (b.dataset.act === 'go' && date.value) set(fromInput(date.value));
+      else if (b.dataset.act === 'normal') set(nowH(), 1);
+      date.value = toInput(eph.hoursToDate(nowH()));
+    });
+    date.addEventListener('keydown', (e) => { if (e.key === 'Enter' && date.value) set(fromInput(date.value)); });
+    const applyRate = () => {
+      const v = parseFloat(rateBox.value);
+      if (Number.isFinite(v)) set(nowH(), THREE.MathUtils.clamp(v, 0, MAX_RATE));
+      rateBox.value = clock.rate;
+    };
+    rateBox.addEventListener('change', applyRate);
+    rateBox.addEventListener('focus', () => setTimeout(() => rateBox.select(), 0));
+    rateBox.addEventListener('keydown', (e) => { if (e.key === 'Enter') applyRate(); });
+    // Keys typed in the popover must not drive the rover or trigger Esc-to-home
+    pop.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Escape') close(); });
+    document.addEventListener('pointerdown', (e) => { if (!pop.hidden && !pop.contains(e.target) && !e.target.closest('.clockbtn')) close(); });
+    window.addEventListener('resize', () => { if (!pop.hidden) place(); });
+    // Close when its clock's screen goes away
+    setInterval(() => { if (!pop.hidden && !anchor.offsetParent) close(); }, 300);
+    sync();
   }
 
   // Debug entry point
