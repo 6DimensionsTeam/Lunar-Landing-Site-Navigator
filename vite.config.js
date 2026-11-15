@@ -43,13 +43,19 @@ function externaliseInlined() {
 
 // The build defaults to a self-contained index.html: scripts, styles, fonts and terrain data
 // all inlined, so it opens offline with a double click. That single file comes to about 37 MB,
-// which Cloudflare Pages refuses -- it caps any one file at 25 MiB -- so a hosted build sets
-// INLINE=0 to emit ordinary separate asset files instead. Largest asset is terrain_inner.bin at
-// 4.6 MB, so nothing approaches the cap that way.
+// which Cloudflare Pages refuses -- it caps any one file at 25 MiB -- so a hosted build emits
+// ordinary separate asset files instead. Largest asset is terrain_inner.bin at 4.6 MB, so
+// nothing approaches the cap that way.
 //
-// INLINE=0 npm run build      -> dist/ with separate files, for hosting
-// npm run build               -> dist/index.html only, for handing round or opening offline
-const inline = process.env.INLINE !== '0';
+// The hosted mode is chosen automatically when Cloudflare runs the build (CF_PAGES is set for
+// every Pages build), so the dashboard's build command can stay plain `npm run build` -- asking
+// a dashboard field to carry `INLINE=0` is a setting that gets lost, and the failure it causes
+// is a deploy that quietly ships the 37 MB file again.
+//
+// npm run build                 -> dist/index.html only, for handing round or opening offline
+// INLINE=0 npm run build        -> dist/ with separate files, to reproduce a hosted build locally
+const hosted = process.env.CF_PAGES === '1' || process.env.INLINE === '0';
+const inline = !hosted;
 
 export default defineConfig({
   base: './',
