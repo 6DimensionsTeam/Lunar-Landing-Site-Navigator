@@ -101,8 +101,16 @@ function evaluate(site, zones, year, needs) {
   if (ground && ground.flat) notes.push(`landable slope (${ground.slopeDeg.toFixed(1)}°)`);
   if (ground && ground.iceLikely) notes.push('permanently shadowed, cold enough for ice');
 
-  verdicts.push({ key: 'comms', label: 'Earth link', pass: !needs.continuousComm || comms >= CONTINUOUS_COMM_PCT, value: `${comms.toFixed(1)}%` });
-  verdicts.push({ key: 'dark', label: 'Dark limit', pass: !(Number.isFinite(needs.maxDarkH) && needs.maxDarkH > 0) || st.longest_dark_h <= needs.maxDarkH, value: `${st.longest_dark_h} h` });
+  // A verdict is only produced for a requirement that was actually asked for. These two used to
+  // be pushed unconditionally with pass computed as "true unless the requirement applies", so a
+  // mission with no requirements still rendered two green PASS rows -- a verdict on a demand
+  // nobody made -- and the caller's own "no requirements set" branch could never be reached.
+  if (needs.continuousComm) {
+    verdicts.push({ key: 'comms', label: 'Earth link', pass: comms >= CONTINUOUS_COMM_PCT, value: `${comms.toFixed(1)}%` });
+  }
+  if (Number.isFinite(needs.maxDarkH) && needs.maxDarkH > 0) {
+    verdicts.push({ key: 'dark', label: 'Dark limit', pass: st.longest_dark_h <= needs.maxDarkH, value: `${st.longest_dark_h} h worst` });
+  }
   if (needs.craterFloor) verdicts.push({ key: 'crater', label: 'Crater floor', pass: !!ground && ground.zone !== 'rough', value: ground ? ground.zone : 'unmapped' });
   if (needs.iceNearby) verdicts.push({ key: 'ice', label: 'Ice nearby', pass: !!ground && ground.iceDistKm <= ICE_NEAR_KM, value: ground ? `${ground.iceDistKm.toFixed(0)} km` : '—' });
 

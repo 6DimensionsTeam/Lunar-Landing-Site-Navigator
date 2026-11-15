@@ -15,9 +15,15 @@ Built for the 2026 NASA International Space Apps Challenge, "Lunar Landing Site 
   the time to the next sunset.
 - **Full-year statistics.** Sunlit fraction, Earth-visible fraction, both at once, and the longest
   continuous night, per site.
-- **Relay station.** A scene of the HALO lunar relay station: an elliptical lunar orbit (≈300 km
-  perilune, ≈16000 km apolune, 55° inclination) that spends most of its period over the south pole.
-  The station model is built from NASA's public Gateway Core mesh plus procedurally generated structure.
+- **Relay station.** A scene of a lunar relay station, placed on an assumed elliptical orbit
+  (≈300 km perilune, ≈16000 km apolune, 55° inclination, ≈24 h period). At that eccentricity the
+  orbit spends about three quarters of its period beyond its own semi-major axis, which is what
+  makes a high relay useful; whether the far point stands over the south pole depends on the
+  orbital plane's orientation, which this project does not model. The orbit is drawn as a
+  Keplerian ellipse and the station is parked at one point on it, so nothing here is a coverage
+  or availability result, and the real Gateway flies a near-rectilinear halo orbit that an
+  ellipse about the Moon cannot represent. The station model is built from NASA's public Gateway
+  Core mesh plus procedurally generated structure.
 - **Rover.** A polar rover from the Space ROS URDF, drivable with keyboard or touch, with a mast camera
   and panel-level power readouts.
 

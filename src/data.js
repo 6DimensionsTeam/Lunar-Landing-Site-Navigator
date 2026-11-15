@@ -3,6 +3,7 @@ import terrainMeta from './data/terrain.json';
 import ephemMeta from './data/ephem.json';
 import sitesMeta from './data/sites.json';
 import candidatesMeta from './data/candidates.json';
+import quakesMeta from './data/quakes.json';
 import zonesMeta from './data/zones.json';
 import validation from './data/validation.json';
 import heroUrl from './data/terrain_hero.bin?inline';
@@ -79,6 +80,9 @@ export async function loadAll(onProgress = () => {}) {
     // measured by the same full-resolution pass (see tools/prep_candidates.py); they differ
     // only in where the place came from, which is what the `source` field records.
     candidates: candidatesMeta,
+    // Mapped lobate scarps: a fault-proximity proxy, not an event catalogue. The south pole has
+    // no seismic event record, so nothing here supports a magnitude or a recurrence interval.
+    quakes: quakesMeta,
     zones,
     zonesMeta,
     validation,
