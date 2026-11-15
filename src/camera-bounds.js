@@ -28,6 +28,7 @@ export function installCameraBounds({ camera, controls, tiles, radiusKm, heightA
   const offset = new Vector3(), previousTarget = new Vector3(), correction = new Vector3(), samplePoint = new Vector3();
   const cachedPosition = new Vector3(), cachedTarget = new Vector3();
   let cached = false, enforcing = false, disposed = false, lastMin, lastMax;
+  let updateDepth = 0, flushing = false, ownedActive = false;
   let userMin = controls.minDistance, userMax = controls.maxDistance;
   let cachedFov, cachedAspect, cachedNear, cachedZoom, snapshot = null;
   const stats = { checks: 0, evaluations: 0, corrections: 0, heightSamples: 0 };
@@ -37,6 +38,32 @@ export function installCameraBounds({ camera, controls, tiles, radiusKm, heightA
   // Keep the cached pose fixed until real movement accumulates beyond a tenth of a micrometre.
   const samePosition = (a, b) => a.distanceToSquared(b) <= 1e-20;
   const clamp = MathUtils.clamp;
+  const externalPose = () => cached && (!samePosition(camera.position, cachedPosition) || !samePosition(controls.target, cachedTarget));
+
+  function runOriginal(receiver, args) {
+    updateDepth++;
+    try { return originalUpdate.apply(receiver, args); }
+    finally { updateDepth--; }
+  }
+  function flushMomentum() {
+    if (flushing) return;
+    flushing = true;
+    const position = camera.position.clone(), target = controls.target.clone(), quaternion = camera.quaternion.clone(), zoom = camera.zoom;
+    const damping = controls.enableDamping, autoRotate = controls.autoRotate;
+    const dispatch = Object.getOwnPropertyDescriptor(controls, 'dispatchEvent');
+    try {
+      // A public, non-damped update consumes pending pan/rotation/dolly input.
+      // Its temporary pose must not reach another change listener or the renderer.
+      controls.enableDamping = false; controls.autoRotate = false; controls.dispatchEvent = () => {};
+      runOriginal(controls, []);
+    } finally {
+      controls.enableDamping = damping; controls.autoRotate = autoRotate;
+      if (dispatch) Object.defineProperty(controls, 'dispatchEvent', dispatch); else delete controls.dispatchEvent;
+      camera.position.copy(position); controls.target.copy(target); camera.quaternion.copy(quaternion);
+      if (camera.zoom !== zoom) { camera.zoom = zoom; camera.updateProjectionMatrix(); }
+      camera.updateMatrixWorld(); flushing = false;
+    }
+  }
 
   function enforce() {
     if (disposed || enforcing || !controls.enabled || !isActive()) return false;
@@ -46,6 +73,7 @@ export function installCameraBounds({ camera, controls, tiles, radiusKm, heightA
         camera.fov === cachedFov && camera.aspect === cachedAspect && camera.near === cachedNear && camera.zoom === cachedZoom &&
         controls.minDistance === lastMin && controls.maxDistance === lastMax) return false;
     enforcing = true; stats.evaluations++;
+    ownedActive = true;
     const beforePosition = camera.position.clone(), beforeTarget = controls.target.clone();
     try {
       if (controls.minDistance !== lastMin) userMin = controls.minDistance;
@@ -121,7 +149,7 @@ export function installCameraBounds({ camera, controls, tiles, radiusKm, heightA
       maxDistance = Math.max(minDistance, Math.min(userMax, ((selectedTile === 'hero' ? heroHalf : innerHalf) - finalEdge) / footprintGain));
       controls.minDistance = lastMin = minDistance; controls.maxDistance = lastMax = maxDistance;
       const changed = !samePosition(camera.position, beforePosition) || !samePosition(controls.target, beforeTarget);
-      if (changed) stats.corrections++;
+      if (changed) { stats.corrections++; flushMomentum(); }
       cachedPosition.copy(camera.position); cachedTarget.copy(controls.target);
       cachedFov = camera.fov; cachedAspect = camera.aspect; cachedNear = camera.near; cachedZoom = camera.zoom; cached = true;
       snapshot = { tile: selectedTile, heroHalfKm: heroHalf, innerHalfKm: innerHalf, outerHalfKm: outerHalf,
@@ -132,11 +160,23 @@ export function installCameraBounds({ camera, controls, tiles, radiusKm, heightA
     } finally { enforcing = false; }
   }
   function boundedUpdate(...args) {
-    if (!controls.enabled || !isActive()) return originalUpdate.apply(this, args);
-    const before = enforce(), result = originalUpdate.apply(this, args), after = enforce();
+    if (!controls.enabled || !isActive()) {
+      // Leaving explore may skip control updates throughout an entire rig flight.
+      // Clear only input owned by that previous interaction, never clamp the new mode.
+      if (ownedActive) { flushMomentum(); ownedActive = false; }
+      return runOriginal(this, args);
+    }
+    // Programmatic pose handoffs take precedence over an old gesture's damping.
+    // Normal OrbitControls input changes the pose inside runOriginal, not before it.
+    if (externalPose()) flushMomentum();
+    ownedActive = true;
+    const before = enforce(), result = runOriginal(this, args), after = enforce();
     return result || before || after;
   }
-  const onChange = () => { enforce(); };
+  const onChange = () => {
+    if (!updateDepth && controls.enabled && isActive() && externalPose()) flushMomentum();
+    enforce();
+  };
   controls.update = boundedUpdate; controls.addEventListener('change', onChange);
   return {
     enforce,

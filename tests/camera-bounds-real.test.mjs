@@ -170,3 +170,61 @@ test('browser regression: extreme public pan, dolly, rotate and damping converge
     t.diagnostic(JSON.stringify({ samples, maximumOvershootKm, toleranceKm: 1e-7 }));
   } finally { view.dispose(); }
 });
+
+test('immediate external landing and station handoffs discard old pan momentum without clamping flight', () => {
+  const siteA = terrain.sites.find(site => site.id === 'A'), siteD = terrain.sites.find(site => site.id === 'D');
+  for (const pixels of [20, 100000]) for (const destination of ['site D', 'site A', 'station']) {
+    const view = createView({ site: siteA });
+    const reference = createView({ site: destination === 'site D' ? siteD : siteA, bounded: false });
+    try {
+      view.controls.update(); view.controls.pan(pixels, pixels);
+      view.controls.enabled = false; view.active = false;
+      const rig = terrain.createRig(view.camera);
+      const pose = destination === 'station' ? rig.orbit(view.camera.aspect, rig.stationPlacement())
+        : rig.landing(view.camera.aspect, latLonToMap(terrain.R, (destination === 'site D' ? siteD : siteA).lat, (destination === 'site D' ? siteD : siteA).lon));
+      rig.apply(pose);
+      const flightPose = view.camera.position.toArray();
+      assert.equal(view.bounds.enforce(), false, 'disabled external flight is never terrain-clamped');
+      assert.deepEqual(view.camera.position.toArray(), flightPose);
+      for (const candidate of [view, reference]) {
+        candidate.camera.position.copy(pose.pos); candidate.camera.quaternion.copy(pose.quat); candidate.camera.fov = pose.fov; candidate.camera.updateProjectionMatrix();
+        candidate.controls.target.copy(pose.target); candidate.controls.enabled = true;
+        Object.assign(candidate.controls, destination === 'station'
+          ? { minDistance: .06, maxDistance: 1.2, maxPolarAngle: MathUtils.degToRad(150), autoRotate: true, autoRotateSpeed: .25 }
+          : { minDistance: 2, maxDistance: 220, maxPolarAngle: MathUtils.degToRad(88), autoRotate: false });
+      }
+      view.active = destination !== 'station';
+      reference.controls.update(); view.controls.update();
+      const label = `${pixels}px pan followed immediately by ${destination}`;
+      assert.ok(view.controls.target.distanceTo(reference.controls.target) < 1e-6, `${label}: no stale target drift`);
+      assert.ok(view.camera.position.distanceTo(reference.camera.position) < 1e-6, `${label}: no stale camera drift`);
+    } finally { view.dispose(); reference.dispose(); }
+  }
+});
+
+test('ordinary in-bounds damping is preserved and boundary flushing keeps public state and events intact', () => {
+  const site = terrain.sites.find(site => site.id === 'A');
+  const view = createView({ site }), reference = createView({ site, bounded: false });
+  try {
+    for (const candidate of [view, reference]) { candidate.controls.update(); candidate.controls.pan(2, 1); }
+    for (let frame = 0; frame < 30; frame++) {
+      view.controls.update(); reference.controls.update();
+      assert.ok(view.camera.position.distanceTo(reference.camera.position) < 1e-6, `ordinary damping camera frame ${frame}`);
+      assert.ok(view.controls.target.distanceTo(reference.controls.target) < 1e-6, `ordinary damping target frame ${frame}`);
+    }
+    const controls = view.controls; controls.saveState();
+    const state = controls.state, dispatch = controls.dispatchEvent;
+    const savedPosition = controls.position0.clone(), savedTarget = controls.target0.clone(), savedZoom = controls.zoom0;
+    let changes = 0;
+    controls.addEventListener('change', () => { changes++; assertSafe(view, 'published change event'); });
+    controls.pan(100000, 100000);
+    assert.equal(changes, 1, 'temporary flush poses must never emit additional change events');
+    assert.equal(controls.state, state); assert.equal(controls.dispatchEvent, dispatch);
+    assert.deepEqual(controls.position0.toArray(), savedPosition.toArray());
+    assert.deepEqual(controls.target0.toArray(), savedTarget.toArray()); assert.equal(controls.zoom0, savedZoom);
+    const targetAtBoundary = controls.target.clone(), cameraAtBoundary = view.camera.position.clone();
+    controls.update();
+    assert.ok(controls.target.distanceTo(targetAtBoundary) < 1e-6, 'clamped pan has no lingering target velocity');
+    assert.ok(view.camera.position.distanceTo(cameraAtBoundary) < 1e-6, 'clamped pan has no lingering camera velocity');
+  } finally { view.dispose(); reference.dispose(); }
+});
