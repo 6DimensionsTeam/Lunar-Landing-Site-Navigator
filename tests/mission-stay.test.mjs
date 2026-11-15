@@ -96,12 +96,12 @@ test('the fixed mission contract and early-departure clamp are unchanged', () =>
     arriveH: 100, launchH: 16, stayH: 36.25,
     needs: { craterFloor: true, iceNearby: false, continuousComm: true, maxDarkH: 0 },
   });
-  // 216 h is the darkness default (buildMissionConfig): the shortest full-year polar night
-  // among the measured candidate sites is 204 h, so a stricter default left every site
-  // failing before the user touched a setting. This checks the default passes through
-  // unchanged, not that 216 is itself the right number -- that number lives in mission.js.
+  // 318 h is the darkness default (buildMissionConfig), the measured longest night at Malapert
+  // Massif, a NASA-published Artemis candidate region. This checks the default passes through
+  // unchanged, not that 318 is itself the right number -- that number and its provenance live
+  // in mission.js, and tools/prep_candidates.py screens the pool against the same figure.
   assert.deepEqual(config(0, 24), {
     arriveH: 0, launchH: 0, stayH: 24,
-    needs: { craterFloor: false, iceNearby: false, continuousComm: false, maxDarkH: 216 },
+    needs: { craterFloor: false, iceNearby: false, continuousComm: false, maxDarkH: 318 },
   });
 });

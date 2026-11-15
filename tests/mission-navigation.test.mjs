@@ -149,7 +149,10 @@ test('actual candidate total includes data-selected sites while bars and darknes
   ]);
   const candidates = candidatePool({ sites: catalog, candidates: found });
   assert.equal(candidates.length, catalog.sites.length + found.candidates.length);
-  assert.equal(candidates.length, 19, 'current repository fixture contains nineteen candidates');
+  // The pool size is a measured outcome of the pre-selection bar, not a constant; what must hold
+  // is that every data site in it actually clears that bar.
+  assert.ok(found.candidates.every(c => c.stats.longest_dark_h <= found.selection.max_dark_h),
+    'every pre-selected data site clears the survivability bar');
   assert.equal(catalog.sites.length, 4, 'the named NASA reference catalogue is a separate four-region subset');
   const ui = uiFixture(), document = { createElement: () => new Element() };
   new Function('ui', 'document', 'catalog', 'candidates', `
