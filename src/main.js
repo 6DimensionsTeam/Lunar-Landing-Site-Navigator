@@ -242,6 +242,10 @@ async function boot() {
   // Set by the P1 block when a descent lands on the surface. While set, Back and Escape return
   // to the site map rather than to the home screen, which the mission flow skips.
   let cameFromMap = false;
+  // Which screen the zone map was opened from. It has two ways in -- the mission flow's own
+  // hand-off, and the "Choose a Site" button on the home view -- and Back has to undo whichever
+  // one was taken rather than always landing on home.
+  let selectionCameFromMission = false;
   let returnToMap = () => {};
   // Set by the analysis block. The key handler runs earlier in this file, so it asks rather
   // than reaching into that block.
@@ -1689,6 +1693,10 @@ async function boot() {
       placeRover(site, true);
       syncDescend();
       const m = latLonToMap(R, site.lat, site.lon);
+      // Committing to a site ends the "which one" question, so the map's own Back no longer has
+      // a mission flow to return to. Cleared here rather than in hide(), because leaveGlobe
+      // reads the flag after calling hide().
+      selectionCameFromMission = false;
       hide();
       hud.hideScreen('select');
       const a = { pos: camera.position.clone(), quat: camera.quaternion.clone(), fov: camera.fov };
@@ -1745,6 +1753,10 @@ async function boot() {
         lastYear = THREE.MathUtils.clamp(y, eph.startYear, eph.endYear);
       }
       buildSiteList(lastYear);
+      // Came in off the mission flow, so Back and Escape have to return there. Without this
+      // they landed on the home view, which is a screen the visitor had already passed and
+      // which offers no way back into the arrival form they were part way through.
+      selectionCameFromMission = true;
       show();
     });
     // A way in that does not depend on P2. The mission flow is the intended route here --
@@ -1754,7 +1766,7 @@ async function boot() {
     // buttons get this guard from go(), which refuses to start a second move while one is
     // running; this one does not go through go(), and taking the frame mid-flight would
     // leave the flight suspended with its completion callback pending.
-    hud.onSelect(() => { if (mode === 'home') show(); });
+    hud.onSelect(() => { if (mode === 'home') { selectionCameFromMission = false; show(); } });
 
     // Back and Escape. Both ways into this screen come from home and neither moves the surface
     // camera, so the usual case is not a flight: the home HUD goes back up directly, because
@@ -1775,6 +1787,14 @@ async function boot() {
       // Mid-flight. The flight owns the screen and raises it on arrival, so adding one here
       // would leave two up at once; hide() has already restarted the loop that finishes it.
       if (mode === 'fly') return;
+      // Opened from the mission flow: put the arrival form back, not the home view. Home is a
+      // screen the visitor has already used and it has no route back into a mission part-way
+      // through, so returning there stranded them.
+      if (selectionCameFromMission) {
+        selectionCameFromMission = false;
+        hud.showScreen('mission');
+        return;
+      }
       controls.enabled = false;
       driftT0 = performance.now();
       look.yaw = look.pitch = 0;
