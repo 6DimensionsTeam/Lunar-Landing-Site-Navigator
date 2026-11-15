@@ -3,6 +3,8 @@ import { createLaunchFilm } from './launch-film.js';
 // P2 owns this module and its #mission mount only. P1 keeps its scene and shaders.
 // All persistent mission times are hours from the injected ephemeris epoch.
 export const dateToHours = (date, eph) => (date.getTime() - eph.start) / 3600e3;
+// Product minimum for this planner, not a universal physical or Artemis requirement.
+export const MIN_STAY_H = 24;
 
 export function getMissionBounds(eph) {
   const { startYear, endYear, start, stepH, count, maxH } = eph;
@@ -13,20 +15,22 @@ export function getMissionBounds(eph) {
   }
   const firstDate = `${startYear}-01-01`;
   const lastCalendarDate = `${endYear}-12-31`;
-  const lastSampleDate = eph.hoursToDate(maxH).toISOString().slice(0, 10);
+  const maxArrivalH = maxH - MIN_STAY_H;
+  if (maxArrivalH < 0) throw new RangeError('The ephemeris must cover at least one day for a mission stay.');
+  const lastArrivalDate = eph.hoursToDate(maxArrivalH).toISOString().slice(0, 10);
   return {
-    minH: 0, maxH, minDate: firstDate,
-    maxDate: lastSampleDate < lastCalendarDate ? lastSampleDate : lastCalendarDate,
+    minH: 0, maxH, maxArrivalH, minDate: firstDate,
+    maxDate: lastArrivalDate < lastCalendarDate ? lastArrivalDate : lastCalendarDate,
     label: startYear === endYear ? String(startYear) : `${startYear}–${endYear}`
   };
 }
 
 export function buildMissionConfig(eph, { arriveH, stayH, needs = {} }) {
-  const { maxH } = getMissionBounds(eph);
-  if (!Number.isFinite(arriveH) || arriveH < 0 || arriveH > maxH) {
-    throw new RangeError('Choose an arrival time within the available mission window.');
+  const { maxH, maxArrivalH } = getMissionBounds(eph);
+  if (!Number.isFinite(arriveH) || arriveH < 0 || arriveH > maxArrivalH) {
+    throw new RangeError('Choose an arrival that leaves at least one day within the available mission window.');
   }
-  if (!Number.isFinite(stayH) || stayH <= 0) throw new RangeError('Enter a stay longer than zero hours.');
+  if (!Number.isFinite(stayH) || stayH < MIN_STAY_H) throw new RangeError('The minimum planned stay is one day (24 hours).');
   if (arriveH + stayH > maxH) {
     throw new RangeError('The planned stay extends beyond the ephemeris. Choose an earlier arrival or a shorter stay.');
   }
@@ -228,9 +232,9 @@ const markup = `
   <div class="p2-pad-layout">
     <section class="panel p2-config"><div class="p2-panel-head"><span>Mission settings</span><small class="p2-scroll-hint">SETTINGS ↓</small></div><form data-ui="config-form" novalidate>
       <fieldset><legend><b>01</b> Stay on the Moon <span>DURATION</span></legend>
-        <div class="p2-duration-value"><input data-ui="stay-days" type="number" min="0" step="any" value="7" aria-label="Planned stay in days"><span>days</span><small>EXACT DURATION</small></div>
-        <input class="p2-range" data-ui="stay-range" type="range" min="1" max="336" step="1" value="168" aria-label="Stay duration in hours" aria-describedby="p2-stay-end"><div class="p2-range-ticks" data-ui="stay-ticks" aria-hidden="true"></div>
-        <p class="p2-field-note" id="p2-stay-end">Mission ends <b data-ui="mission-end">—</b></p>
+        <div class="p2-duration-value"><input data-ui="stay-days" type="number" min="1" step="any" value="7" aria-label="Planned stay in days" aria-describedby="p2-stay-end"><span>days</span><small>EXACT DURATION</small></div>
+        <input class="p2-range" data-ui="stay-range" type="range" min="24" max="336" step="1" value="168" aria-label="Stay duration in hours" aria-describedby="p2-stay-end"><div class="p2-range-ticks" data-ui="stay-ticks" aria-hidden="true"></div>
+        <p class="p2-field-note" id="p2-stay-end">Minimum 1 day. Mission ends <b data-ui="mission-end">—</b></p>
       </fieldset>
       <fieldset><legend><b>02</b> Mission requirements <span>OPTIONAL</span></legend>
         <label class="p2-check"><input data-ui="crater-floor" type="checkbox"><span>Reach a crater floor</span><small data-need="craterFloor">NOT REQUESTED</small></label>
@@ -384,6 +388,7 @@ export function createMission({ eph, data, onMissionReady }) {
     const transferH = config.arriveH - config.launchH;
     const share = transferH / (transferH + config.stayH) * 100;
     root.querySelectorAll('[data-timeline]').forEach(timeline => {
+      timeline.hidden = false;
       timeline.querySelector('[data-segment="transfer"]').style.width = `${share}%`;
       timeline.querySelector('[data-segment="stay"]').style.width = `${100 - share}%`;
       timeline.querySelector('.p2-arrival-pin').style.left = `${share}%`;
@@ -399,13 +404,17 @@ export function createMission({ eph, data, onMissionReady }) {
   }
   function updateStayRange(stayH) {
     const available = bounds.maxH - arriveH;
-    const max = Math.min(available, Math.max(336, Math.ceil(stayH / 24) * 24));
-    const min = Math.min(1, stayH, max);
+    const requested = Number.isFinite(stayH) ? Math.max(MIN_STAY_H, stayH) : MIN_STAY_H;
+    const max = Math.min(available, Math.max(336, Math.ceil(requested / 24) * 24));
+    const min = MIN_STAY_H;
     ui('stay-range').min = String(min);
     ui('stay-range').max = String(max);
     ui('stay-range').step = Number.isInteger(stayH) && Number.isInteger(min) && Number.isInteger(max) ? '1' : 'any';
-    ui('stay-range').value = String(stayH);
-    ui('stay-range').setAttribute('aria-valuetext', `${Number(stayH.toFixed(3))} hours; ends ${fullDate(arriveH + stayH)} UTC`);
+    ui('stay-range').value = String(Math.max(min, Math.min(max, requested)));
+    const valid = Number.isFinite(stayH) && stayH >= min && stayH <= available;
+    ui('stay-range').setAttribute('aria-valuetext', valid
+      ? `${Number(stayH.toFixed(3))} hours; ends ${fullDate(arriveH + stayH)} UTC`
+      : `Duration needs correction. Choose at least ${min} hours, within the remaining mission window.`);
     const marks = [{ h: 24, text: '24 h' }, { h: 72, text: '3 d' }, { h: 168, text: '7 d' }, { h: max, text: `${Number((max / 24).toFixed(1))} d` }];
     const accepted = [];
     ui('stay-ticks').replaceChildren();
@@ -466,18 +475,22 @@ export function createMission({ eph, data, onMissionReady }) {
   function syncArrivalTimeBounds() {
     const day = ui('arrival-date').value;
     ui('arrival-time').min = day === isoDay(0) ? fullDate(0).slice(11) : '00:00';
-    ui('arrival-time').max = day === isoDay(bounds.maxH) ? fullDate(bounds.maxH).slice(11) : '23:59';
+    ui('arrival-time').max = day === isoDay(bounds.maxArrivalH) ? fullDate(bounds.maxArrivalH).slice(11) : '23:59';
   }
   function readArrival() {
     const day = ui('arrival-date').value;
     const time = preciseTime && ui('arrival-time').value ? ui('arrival-time').value : '00:00';
     const h = dateToHours(new Date(`${day}T${time}:00Z`), eph);
-    if (!Number.isFinite(h) || h < bounds.minH || h >= bounds.maxH) {
-      throw new RangeError(`Choose an arrival between ${bounds.minDate} and ${bounds.maxDate}, before the final sample at ${fullDate(bounds.maxH)} UTC.`);
+    if (!Number.isFinite(h) || h < bounds.minH || h > bounds.maxArrivalH) {
+      throw new RangeError(`Choose an arrival between ${bounds.minDate} and ${fullDate(bounds.maxArrivalH)} UTC to leave at least one day for your stay.`);
     }
     return h;
   }
   function updateConfig() {
+    ui('arrival-epoch').textContent = `${Number(arriveH.toFixed(3))} h`;
+    ui('mission-id').textContent = `LLN-${isoDay(arriveH).replaceAll('-', '')}`;
+    ui('summary-transfer').innerHTML = `${Number(Math.min(84, arriveH).toFixed(2))} <small>hours · planned</small>`;
+    updateStayRange(Number(ui('stay-days').value) * 24);
     try {
       if (!ui('stay-days').value || !ui('max-dark').value) throw new RangeError('Enter the stay duration and maximum darkness.');
       currentConfig = buildMissionConfig(eph, {
@@ -489,12 +502,8 @@ export function createMission({ eph, data, onMissionReady }) {
       ui('config-error').textContent = '';
       ui('mission-end').textContent = `${fullDate(arriveH + currentConfig.stayH)} UTC`;
       updateTimeline(currentConfig);
-      updateStayRange(currentConfig.stayH);
       updateCandidates(currentConfig.needs);
-      ui('arrival-epoch').textContent = `${Number(arriveH.toFixed(3))} h`;
-      ui('mission-id').textContent = `LLN-${isoDay(arriveH).replaceAll('-', '')}`;
       ui('summary-stay').innerHTML = `${Number((currentConfig.stayH / 24).toFixed(3))} <small>days</small>`;
-      ui('summary-transfer').innerHTML = `${Number((arriveH - currentConfig.launchH).toFixed(2))} <small>hours · planned</small>`;
       ui('launch').disabled = !transit;
     } catch (error) {
       currentConfig = null;
@@ -502,6 +511,8 @@ export function createMission({ eph, data, onMissionReady }) {
       ui('config-error').textContent = error.message;
       ui('launch').disabled = true;
       ui('mission-end').textContent = 'Outside the mission window';
+      ui('summary-stay').textContent = 'Needs correction';
+      root.querySelectorAll('[data-timeline]').forEach(timeline => { timeline.hidden = true; });
     }
   }
   async function finishMission(config) {
@@ -569,8 +580,7 @@ export function createMission({ eph, data, onMissionReady }) {
       arriveH = readArrival();
       ui('arrival-error').textContent = '';
       ui('stay-days').max = String((bounds.maxH - arriveH) / 24);
-      // Keep a valid initial stay even on the dataset's final date.
-      if (Number(ui('stay-days').value) * 24 > bounds.maxH - arriveH) ui('stay-days').value = String((bounds.maxH - arriveH) / 24);
+      // Preserve the user's duration; an out-of-range stay must be corrected explicitly.
       updateConfig();
       setStage('orbit');
     } catch (error) { ui('arrival-error').textContent = error.message; }
