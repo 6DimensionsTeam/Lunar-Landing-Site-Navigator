@@ -1101,6 +1101,19 @@ async function boot() {
       this.site = sel;
       for (const fn of this.siteHandlers) fn(sel);
     },
+    // The third hand-over, in the other direction: a package that only has a site and an
+    // entry (the calendar's recommendation) asks the zone map's own descendTo to do the
+    // committing and flying, rather than re-implementing that flight. descendTo is a
+    // block-scoped declaration elsewhere in this file, invisible here by design (see the
+    // header note on packages not sharing lines), so it registers itself through this
+    // contract instead of being named directly.
+    visitHandler: null,
+    onVisit(fn) {
+      this.visitHandler = fn;
+    },
+    visit(site, entry) {
+      if (this.visitHandler) this.visitHandler(site, entry);
+    },
   };
 
   // P2, mission framing. Shows #mission, calls mission.ready(cfg) when the launch ends.
@@ -1121,6 +1134,10 @@ async function boot() {
         root: hud.screen('select'), data, zones, eph,
         getMission: () => mission.cfg,
         getYear: () => eph.hoursToDate(nowH()).getUTCFullYear(),
+        // "Show result" on the calendar's recommendation flies to that site the same way
+        // picking it on the zone map does. descendTo is declared in a sibling block and is not
+        // in scope here, so the call goes through the mission hand-off instead (mission.visit).
+        onVisit: (cell) => mission.visit(cell.site, cell.entry),
       });
       const missionFlow = createMission({
         eph,
@@ -1669,6 +1686,11 @@ async function boot() {
         },
       };
     }
+    // Let the calendar's "Show result" (or any other package with only a site and an entry)
+    // reach descendTo through the mission hand-off, since the declaration itself is scoped to
+    // this block. Site selection always mounts before the calendar wires up, so no deferred
+    // delivery is needed here the way onMission/onSite provide it.
+    mission.onVisit(descendTo);
 
     // The arrival time is what makes the site figures specific rather than an average, so it
     // is read here rather than ignored. Clamped into the ephemeris range: a date control that
