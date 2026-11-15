@@ -62,9 +62,23 @@ function assertSafe(view, label) {
   }
 }
 
+
+// The outer-tile regression needs the sites furthest from the pole, wherever they sit after a
+// regeneration. Chosen by measured distance, not by id: ids follow latitude and a data rebuild
+// can move a site between the pre-selected pool and the surveyed list.
+function outerSites() {
+  return [...terrain.candidatePool, ...terrain.surveyed]
+    // The four NASA regions carry no dist_pole_km, so derive it from latitude (south polar
+    // stereographic, same as geo.js) rather than let undefined poison the sort.
+    .map((s) => ({ s, d: s.dist_pole_km ?? 2 * 1737.4 * Math.tan((90 - Math.abs(s.lat)) * Math.PI / 360) }))
+    .sort((a, b) => b.d - a.d)
+    .slice(0, 2)
+    .map(({ s, d }) => ({ ...s, dist_pole_km: d }));
+}
+
 test('initial landing and every named or data-selected candidate preserve the existing controls handover', () => {
-  assert.ok(terrain.candidatePool.some(site => site.id === 'D11'), 'load the expanded pool, including its outer-tile regression');
-  for (const aspect of [16 / 9, 9 / 19.5, 4]) for (const site of [null, ...terrain.candidatePool]) {
+  assert.ok(outerSites()[0].dist_pole_km > 140, 'the outer-tile regression sites are loaded');
+  for (const aspect of [16 / 9, 9 / 19.5, 4]) for (const site of [null, ...terrain.candidatePool, ...outerSites()]) {
     const reference = createView({ aspect, site, bounded: false });
     const view = createView({ aspect, site });
     try {
@@ -90,9 +104,9 @@ test('site D remains accessible at 123 km from the pole instead of being clipped
   } finally { view.dispose(); }
 });
 
-test('D11 and D12 promote to outer coverage without translating their landing targets', () => {
-  for (const id of ['D11', 'D12']) {
-    const site = terrain.candidatePool.find(site => site.id === id);
+test('the two sites furthest from the pole promote to outer coverage without translating their landing targets', () => {
+  for (const site of outerSites()) {
+    const id = site.id;
     assert.ok(site);
     const view = createView({ site });
     try {
@@ -107,7 +121,7 @@ test('D11 and D12 promote to outer coverage without translating their landing ta
 });
 
 test('actual outer-edge pan requests and extreme zoom preserve a finite covered horizon at every aspect', () => {
-  const site = terrain.candidatePool.find(site => site.id === 'D11');
+  const site = outerSites()[0];
   const outerHalf = terrain.tiles.outer.half_extent_m / 1000;
   for (const aspect of [16 / 9, 9 / 19.5, 4]) {
     const view = createView({ site, aspect });
