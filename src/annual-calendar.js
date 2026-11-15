@@ -8,8 +8,13 @@ const finite = (value, suffix = '', digits = 1) => Number.isFinite(value)
 const siteName = site => site.en || site.name || site.id;
 const statusLabel = status => ({ feasible: 'Meets annual criteria', infeasible: 'Fails annual criteria', unknown: 'Unknown annual evidence' })[status];
 
-/** Local inspection only. Recommendations never commit a site or change the host mission clock. */
-export function createAnnualCalendar({ root, data, zones, eph, getMission = () => null, getYear = () => null }) {
+/**
+ * Browsing the map and the table is local inspection only: it never commits a site or moves the
+ * host mission clock on its own. "Show result" on the recommendation is the one deliberate exit
+ * from that -- the user asked to see the recommended site, not just read about it, so onVisit (if
+ * given) is called with the recommended cell and the calendar closes behind it.
+ */
+export function createAnnualCalendar({ root, data, zones, eph, getMission = () => null, getYear = () => null, onVisit = null }) {
   if (!root) throw new TypeError('The annual planner requires its selection screen.');
   const doc = root.ownerDocument;
   const prefix = `ac-${++instanceCount}`;
@@ -270,6 +275,15 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
       copy.append(node('p', 'ac-copy', sentence));
       const inspect = button('ac-inspect', 'Show result');
       inspect.dataset.acAction = 'recommendation';
+      if (onVisit) {
+        listen(inspect, 'click', () => {
+          hide({ restoreFocus: false });
+          onVisit(best);
+        });
+      } else {
+        inspect.disabled = true;
+        inspect.title = 'Nothing is wired up to show this result yet.';
+      }
       recommendation.append(copy, inspect);
     } else {
       copy.append(node('h3', 'ac-recommend-name', 'No confirmed annual fit'));
