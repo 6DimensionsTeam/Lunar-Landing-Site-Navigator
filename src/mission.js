@@ -2,6 +2,7 @@ import { createLaunchFilm } from './launch-film.js';
 import { candidatePool } from './rank.js';
 import { loadSession, saveSession } from './session.js';
 import { resumeStage, routeReady, startPath } from './router.js';
+import teamLogo from './assets/team-logo.png';
 
 // P2 owns this module and its #mission mount only. P1 keeps its scene and shaders.
 // All persistent mission times are hours from the injected ephemeris epoch.
@@ -255,7 +256,7 @@ const markup = `
 <div class="p2-shade" aria-hidden="true"></div><div class="grid p2-grid" aria-hidden="true"></div>
 <div class="frame p2-frame" aria-hidden="true"><i></i><i></i><i></i><i></i><span class="p2-edge-scale top"></span><span class="p2-edge-scale bottom"></span></div>
 <div class="p2-black" data-ui="blackout" aria-hidden="true"></div>
-<header class="p2-header"><button class="p2-brand" data-ui="restart" aria-label="6Dimensions – Smarter lunar decisions"><img class="p2-brand-logo" src="./src/assets/team-logo.png" alt=""><span class="p2-brand-text"><b>6Dimensions</b><small>Smarter lunar decisions</small></span></button><div class="p2-header-line"></div><div class="p2-system"><span>MISSION CONTROL</span><b data-ui="mission-id">LLN–P2</b></div></header>
+<header class="p2-header"><button class="p2-brand" data-ui="restart" aria-label="6Dimensions – Smarter lunar decisions"><img class="p2-brand-logo" src="${teamLogo}" alt=""><span class="p2-brand-text"><b>6Dimensions</b><small>Smarter lunar decisions</small></span></button><div class="p2-header-line"></div><div class="p2-system"><span>MISSION CONTROL</span><b data-ui="mission-id">LLN–P2</b></div></header>
 <section id="mission-date" class="p2-stage" data-view="intro">
   <div class="p2-intro-content"><p class="p2-eyebrow"><b>01</b><span>ARRIVAL EPOCH / UTC</span></p><h1 tabindex="-1">When do you want<br>to reach the Moon?</h1><p class="p2-subtitle"><span data-ui="candidate-intro"></span></p>
     <form data-ui="arrival-form" novalidate><div class="p2-date-box"><label class="p2-date-label" for="p2-arrival-date">Arrival date · MM/DD/YYYY <small>REQUIRED · UTC</small></label><input class="p2-arrival" id="p2-arrival-date" data-ui="arrival-date" type="date" required><div class="p2-time-row"><button class="p2-link" data-ui="toggle-time" type="button" aria-expanded="false" aria-controls="p2-arrival-time-wrap">＋ Add a time <small>OPTIONAL</small></button><div class="p2-time-wrap" id="p2-arrival-time-wrap" data-ui="time-wrap" hidden><input data-ui="arrival-time" type="time" value="12:00" aria-label="Arrival time in UTC"><span>UTC</span></div></div></div><p class="p2-error" data-ui="arrival-error" role="alert"></p><button class="p2-cta" data-ui="plan" type="submit" disabled><b>Plan my journey</b><span>COMPUTE ARRIVAL GEOMETRY ↗</span></button></form>
