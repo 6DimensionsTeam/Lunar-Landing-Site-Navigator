@@ -8,6 +8,7 @@ import { common } from './common.js';
 export const nearVert = /* glsl */ `
 ${common}
 uniform float uTexHero;
+uniform float uFine;         // 1 where the 40 m hero tile covers this patch, 0 outside it
 uniform vec2 uPC;            // patch centre (map km), falls on a vertex of the main mesh
 uniform vec2 uPCA;           // patch centre relative to point A (metres)
 uniform vec3 uO;             // origin of the near scene (scene km)
@@ -47,8 +48,11 @@ void main() {
   vec2 g = position.xz;                      // relative to the patch centre (metres)
   vec2 m = uPC + g * 0.001;
   float w = smoothstep(uMorph0, uMorph1, length(g));
-  float h = heroFine(m);
-  if (w > 0.0) h = mix(h, coarseH(m), w);
+  // Outside the hero tile heroFine() only clamps to its edge, which would lay a flat false
+  // floor under the rover. uFine is 0 there and the patch follows the main mesh instead.
+  float w2 = max(w, 1.0 - uFine);
+  float h = w2 >= 1.0 ? coarseH(m) : heroFine(m);
+  if (w2 > 0.0 && w2 < 1.0) h = mix(h, coarseH(m), w2);
   vec3 wp = mapToScene(m, h);
   vMap = m;
   vWorld = wp;
