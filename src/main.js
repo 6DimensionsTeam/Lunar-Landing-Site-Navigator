@@ -1767,14 +1767,20 @@ async function boot() {
       const path = startPath();
       const saved = loadSession();
       const finish = () => setTimeout(routeReady, 400);
+      // The advisory board opens immediately (one frame) so the user never sees the
+      // intermediate #select state with the orbit animation playing behind it.
+      if (path === '/advisory-board') {
+        requestAnimationFrame(() => {
+          openBoardFor(saved.boardSite ?? null, saved.boardYear ?? boardYear());
+          finish();
+        });
+        return;
+      }
       setTimeout(() => {
         if (path === '/site-survey' || path === '/robustness') {
           document.querySelector('#select .ac-view-button')?.click();
           if (path === '/robustness') setTimeout(() => { document.getElementById('sel-trial')?.click(); finish(); }, 500);
           else finish();
-        } else if (path === '/advisory-board') {
-          openBoardFor(saved.boardSite ?? null, saved.boardYear ?? boardYear());
-          finish();
         } else if (['/surface', '/rover', '/compare', '/relay-station'].includes(path) && saved.siteId) {
           const year = saved.siteYear ?? lastYear;
           const entry = rankSites(pool, zones, year, missionNeeds).find((e) => e.site.id === saved.siteId);
