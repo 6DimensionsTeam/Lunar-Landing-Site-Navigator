@@ -959,6 +959,18 @@ async function boot() {
       mkHost.appendChild(mk);
       marks[s.id] = { el: mk, lead: mk.querySelector('.lead polyline'), label: mk.querySelector('span') };
     }
+    // Ground the scan measured and the darkness bar rejected (see tools/prep_candidates.py).
+    // Drawn as bare grey points with no label: they show how much was looked at before the
+    // pool was settled, and thirteen more names would bury the six that can actually be chosen.
+    // Never ranked, never clickable -- they are not candidates.
+    const surveyed = (data.candidates?.surveyed || []).map((c) => ({ ...c, source: 'data' }));
+    const surveyMarks = surveyed.map((s) => {
+      const mk = document.createElement('div');
+      mk.className = 'site surveyed off';
+      mk.innerHTML = '<i></i>';
+      mkHost.prepend(mk);   // under the candidate markers in paint order
+      return { s, el: mk };
+    });
 
     // Legend: one row per zone class, in the fixed order the classification itself uses
     // (shadow first, down to the catch-all), reusing zones.js's own names and colours rather
@@ -1048,6 +1060,14 @@ async function boot() {
         more.textContent = `+${hidden} more in the pool, none meeting the mission better`;
         siteListHost.appendChild(more);
       }
+      if (surveyed.length) {
+        const sv = document.createElement('div');
+        sv.className = 'more surveyed-note';
+        const bar = data.candidates?.selection?.max_dark_h;
+        sv.textContent = `${surveyed.length} more sites surveyed and measured (grey on the map); `
+          + `none survives the ${bar} h night of Malapert Massif, the darkest NASA-published region.`;
+        siteListHost.appendChild(sv);
+      }
       // A requirement set stricter than every measured site reads the same on screen as a
       // broken ranking: an all-red list either way. Say which requirement is the actual
       // blocker and the loosest value that would let the best site through, so the fix is a
@@ -1111,6 +1131,12 @@ async function boot() {
     const slots = [];
     function layoutMarks(w, h) {
       slots.length = 0;
+      for (const sm of surveyMarks) {
+        const p = globe.screenOfLatLon(sm.s.lat, sm.s.lon, w, h);
+        const onFront = p && p.front && p.x > 8 && p.x < w - 8 && p.y > 8 && p.y < h - 8;
+        sm.el.classList.toggle('off', !onFront);
+        if (onFront) sm.el.style.transform = `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0)`;
+      }
       // Only the markers currently on the map get laid out; the marker set follows the ranked
       // list (see buildSiteList), not the whole pool.
       for (const s of globe.siteDirs.map((d) => d.site)) {
