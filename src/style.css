@@ -1466,7 +1466,19 @@ body {
 @media (max-width: 1100px) {
   /* the two panels sit side by side towards the centre, the entry button centred below them */
   .dock { grid-template-columns: repeat(2, minmax(0, var(--dock-w))); justify-content: center; grid-template-areas: 'sites live' 'cta cta'; gap: 1.2em 1.4em; }
-  .sites, .params, .tele, .live { justify-self: stretch; width: auto; }
+  /* .legend and the two analysis panels belong here too: they are dock children with the same
+     fixed `width: var(--dock-w)`, and this list is what releases it. Left out, .legend stayed
+     441px inside a 341.7px track and covered the candidate list by 79.7px, measured at 740x360 --
+     the window where this breakpoint applies but the 720px one does not. */
+  .sites, .params, .tele, .live,
+  .legend, .analysis-panel, .analysis-ai { justify-self: stretch; width: auto; }
+  /* Two rows now, so the height cap has to be shared between them. Without a row template the
+     panel row takes the dock's whole max-height (486px at 900px tall) and the button row lands
+     past the bottom edge: measured at 740x900, the button row sat at y=898.3 in a 900px viewport
+     with 1.7px on screen. minmax(0, 1fr) lets the panels shrink, `auto` keeps the buttons whole. */
+  #select .dock, #analysis .dock { grid-template-rows: minmax(0, 1fr) auto; row-gap: 1em; }
+  #select .legend, #select .live,
+  #analysis .analysis-panel, #analysis .analysis-ai { min-height: 0; }
 }
 @media (max-width: 720px) {
   .sites, .params, .tele, .ttl-d, .rover-cta span { display: none; }
@@ -1512,6 +1524,31 @@ body {
   #orbit .clock, #orbit .tag:not([data-tag='ring']) .lbl, #orbit .tag:not([data-tag='ring']) .lead, .tag[data-tag='ring'] .lbl > span { display: none; }
   .tag[data-tag='crater'] .lbl > span, .site span, .frame::before, .frame::after { display: none; }
   .hint { flex-wrap: wrap; justify-content: center; gap: 0.6em 1.2em; width: max-content; max-width: 80vw; white-space: normal; }
+}
+
+/* Landscape phone: wide enough for the two-column dock, too short to stack anything under it.
+   `max-height: calc(100vh - 46vh)` gives the dock 194.4px at 360px tall, which the panel row
+   consumes entirely, so the button row lands at y=358 in a 360px viewport -- measured at 740x360,
+   with the Robustness Trial button at y=432, off-screen outright. The title block is the slack
+   here: it takes 187px of the 360, so trimming it and laying the buttons out in a row gives the
+   dock room for both of its rows. */
+@media (max-height: 520px) and (min-width: 721px) {
+  #select .ttl-d, #analysis .ttl-d { display: none; }
+  #select .ttl, #analysis .ttl { padding-block: 0.5em 0.6em; }
+  /* The row template is what bounds the height here, not max-height on the dock: a grid's
+     max-height caps the container while its children keep overflowing it, which is what left the
+     panels 735px tall and the buttons at y=848. minmax(0, 1fr) lets the panel row take the slack
+     and shrink below its content, and `auto` gives the button row exactly what it needs. */
+  #select .dock, #analysis .dock {
+    max-height: calc(100vh - 34vh);
+    grid-template-rows: minmax(0, 1fr) auto;
+    row-gap: 0.6em;
+  }
+  /* Three buttons across instead of stacked: the row costs one button's height, not three. */
+  #select .cta-stack, #analysis .cta-stack { grid-auto-flow: column; grid-auto-columns: 1fr; }
+  /* min-height: 0 is required for the 1fr row to actually shrink; the panels already scroll. */
+  #select .legend, #select .live,
+  #analysis .analysis-panel, #analysis .analysis-ai { max-height: none; min-height: 0; }
 }
 
 /* ---------- reduced motion: keep fades only ---------- */
