@@ -6,11 +6,21 @@
 // the numbers on screen. Nothing is tuned to make one site win.
 //
 // One deliberate asymmetry: the requirements are hard filters, not weights. A mission that
-// says it needs continuous contact cannot be answered with "85 per cent contact, still quite
-// good" -- the requirement either holds or it does not. Sites are therefore ranked in two
-// tiers, those that meet every stated requirement and those that do not, and only then by
-// score within each tier. A failing site is still listed and still explained, because knowing
-// why a site was ruled out is as useful as knowing which one won.
+// states a bar cannot be answered with "just under it, still quite good" -- the requirement
+// either holds or it does not. Sites are therefore ranked in two tiers, those that meet every
+// stated requirement and those that do not, and only then by score within each tier. A failing
+// site is still listed and still explained, because knowing why a site was ruled out is as
+// useful as knowing which one won.
+//
+// What the Earth-link requirement is NOT. It filters on earth_visible_pct, the share of the
+// period the site can see Earth at all, and that share cannot express continuity: Malapert
+// Massif sees Earth 84.8% of the period and still loses it for 123 hours without a break,
+// while Shackleton Rim sees it 51.9% of the period and loses it for 336. The two are not even
+// ordered the same way. The control was labelled "continuous Earth link", which claimed
+// something the measurement cannot support; it is a share, is labelled as one, and the
+// unbroken outage (longest_blind_h, from the same horizon profiles) is reported alongside it
+// rather than folded into it. Filtering on the outage instead would rule out every site in the
+// pool, which is a statement about relay design this project has not made.
 
 // Requirements arrive as P2's `needs` object:
 //   { craterFloor, iceNearby, continuousComm, maxDarkH }
@@ -98,7 +108,7 @@ function evaluate(site, zones, year, needs) {
 
   const commNeeded = needs.continuousComm ? commBar(needs.continuousComm) : null;
   if (commNeeded !== null && comms < commNeeded) {
-    fails.push(`Earth link ${comms.toFixed(1)}%, below the ${commNeeded}% needed for continuous contact`);
+    fails.push(`Earth link ${comms.toFixed(1)}% of the period, below the ${commNeeded}% asked for`);
   }
   if (Number.isFinite(needs.maxDarkH) && needs.maxDarkH >= 0 && st.longest_dark_h > needs.maxDarkH) {
     fails.push(`Longest night ${st.longest_dark_h} h, beyond the ${needs.maxDarkH} h the mission allows`);
@@ -116,7 +126,9 @@ function evaluate(site, zones, year, needs) {
 
   // Strengths worth naming even when the site fails something else, so the listing explains
   // itself rather than presenting a bare number.
-  if (comms >= 80) notes.push(`strong Earth link (${comms.toFixed(1)}%)`);
+  // Named as a share, not as "strong": the same site can hold the pool's best share and still
+  // sit through a five-day outage, so the figure must not be praised in the abstract.
+  if (comms >= 80) notes.push(`sees Earth ${comms.toFixed(1)}% of the period`);
   if (light >= 80) notes.push(`well lit (${light.toFixed(1)}%)`);
   if (st.longest_dark_h <= 24) notes.push(`never dark for more than ${st.longest_dark_h} h`);
   if (ground && ground.flat) notes.push(`landable slope (${ground.slopeDeg.toFixed(1)}°)`);
@@ -127,7 +139,7 @@ function evaluate(site, zones, year, needs) {
   // mission with no requirements still rendered two green PASS rows -- a verdict on a demand
   // nobody made -- and the caller's own "no requirements set" branch could never be reached.
   if (commNeeded !== null) {
-    verdicts.push({ key: 'comms', label: 'Earth link', pass: comms >= commNeeded, value: `${comms.toFixed(1)}%` });
+    verdicts.push({ key: 'comms', label: 'Earth link share', pass: comms >= commNeeded, value: `${comms.toFixed(1)}%` });
   }
   // Same rule as the score above: an absent or negative limit means the requirement was not
   // asked for, but 0 is a real demand and has to produce its verdict row. With the old `> 0`
@@ -161,6 +173,15 @@ export function compareSites(entries) {
       cells: {
         sun: { value: `${st.sun_visible_pct.toFixed(1)}%`, raw: st.sun_visible_pct },
         comms: { value: `${st.earth_visible_pct.toFixed(1)}%`, raw: st.earth_visible_pct, verdict: byKey.get('comms') ?? null },
+        // The unbroken outage, beside the share it cannot be derived from. Shown ungraded even
+        // though no requirement filters on it: it is the figure that actually separates these
+        // sites (123 h at Malapert Massif against 336 at Shackleton Rim, a factor of 2.7, where
+        // the share spans only 33 points) and reading the share without it invites "84.8%, so
+        // contact is fine".
+        blind: {
+          value: Number.isFinite(st.longest_blind_h) ? `${st.longest_blind_h} h` : '—',
+          raw: Number.isFinite(st.longest_blind_h) ? st.longest_blind_h : null,
+        },
         dark: { value: `${st.longest_dark_h} h`, raw: st.longest_dark_h, verdict: byKey.get('dark') ?? null },
         ground: {
           value: ground ? ground.zone : 'unmapped',
@@ -182,7 +203,8 @@ export function compareSites(entries) {
   // a category and overall already reads as MEETS/FAILS -- so neither marks a best cell.
   const columns = [
     { key: 'sun', label: 'Sunlight', better: 'high' },
-    { key: 'comms', label: 'Earth link', graded: askedComms, better: 'high' },
+    { key: 'comms', label: 'Earth link share', graded: askedComms, better: 'high' },
+    { key: 'blind', label: 'Longest outage', better: 'low' },
     { key: 'dark', label: 'Longest night', graded: askedDark, better: 'low' },
     { key: 'ground', label: 'Ground', graded: askedCrater },
     { key: 'ice', label: 'Ice nearby', graded: askedIce, better: 'low' },
