@@ -1,3 +1,4 @@
+import { mountAnalysis } from './analysis-panel.js';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { loadAll } from './data.js';
@@ -1304,6 +1305,7 @@ async function boot() {
   // paragraph. Both are assembled from measured values only -- no model call, so the analysis
   // renders with the network off, which is the requirement the submission has to meet.
   {
+    const enrichAnalysis = mountAnalysis({ THREE });
     const an = id => document.getElementById(id);
     let current = null;
 
@@ -1331,6 +1333,7 @@ async function boot() {
       }
 
       an('an-ai').textContent = explain(entry, needs);
+      enrichAnalysis(sel);
       const st = entry.stats;
       an('an-credit').textContent =
         `${st.sun_visible_pct.toFixed(1)}% sunlight · ${st.earth_visible_pct.toFixed(1)}% Earth link · `

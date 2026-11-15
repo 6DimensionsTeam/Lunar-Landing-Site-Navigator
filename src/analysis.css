@@ -1,0 +1,6 @@
+.fault-control{position:absolute;right:var(--pad);top:80px;width:min(300px,65vw);pointer-events:auto;background:#050505c9;padding:12px;border:1px solid #ffffff40;font:500 13px/1.5 var(--sans)}
+.fault-control p,.p3-chat p,.p3-source,.p3-blocker{color:var(--fg2);font-size:13px}
+.p3-chat{pointer-events:auto;max-height:40vh;overflow:auto}
+.p3-chat input{box-sizing:border-box;width:100%;margin:4px 0;background:#080808;color:var(--fg);border:1px solid var(--line);padding:8px;font:inherit}
+.p3-chat button{background:#151515;color:var(--fg);border:1px solid var(--line);padding:8px;cursor:pointer}
+.p3-chat [role=log]{max-height:180px;overflow:auto;white-space:pre-wrap}

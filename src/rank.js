@@ -1,3 +1,4 @@
+import { nearestFault } from './seismic.js';
 // Site ranking: turns a candidate's measured figures plus the mission's stated requirements
 // into a score, a verdict against each requirement, and a reason a reader can check.
 //
@@ -36,7 +37,7 @@ export function rankSites(sites, zones, year, needs = {}) {
 }
 
 export function statsFor(site, year) {
-  return (year != null && site.stats_by_year[String(year)]) || site.stats;
+  return (year != null && site.stats_by_year?.[String(year)]) || site.stats;
 }
 
 function evaluate(site, zones, year, needs) {
@@ -93,7 +94,13 @@ function evaluate(site, zones, year, needs) {
   if (needs.craterFloor) verdicts.push({ key: 'crater', label: 'Crater floor', pass: !!ground && ground.zone !== 'rough', value: ground ? ground.zone : 'unmapped' });
   if (needs.iceNearby) verdicts.push({ key: 'ice', label: 'Ice nearby', pass: !!ground && ground.iceDistKm <= ICE_NEAR_KM, value: ground ? `${ground.iceDistKm.toFixed(0)} km` : '—' });
 
-  return { site, stats: st, ground, score, fails, notes, verdicts, meetsAll: fails.length === 0 };
+  const seismic = nearestFault(site);
+  const seismicPass = seismic != null && seismic.distanceKm > 100;
+  verdicts.push({ key: 'seismic', label: 'Seismic (fault proximity)', pass: seismicPass,
+    value: seismic ? `${seismic.distanceKm.toFixed(1)} km to mapped scarp; >100 km threshold` : 'No catalogue data' });
+  if (seismic && !seismicPass) fails.push(`Mapped fault within 100 km (${seismic.distanceKm.toFixed(1)} km)`);
+  if (seismicPass) notes.push(`nearest mapped scarp ${seismic.distanceKm.toFixed(1)} km away (hazard proxy only)`);
+  return { seismic, site, stats: st, ground, score, fails, notes, verdicts, meetsAll: fails.length === 0 };
 }
 
 // The one-line answer a reader wants first: does this site work for the mission as stated,
