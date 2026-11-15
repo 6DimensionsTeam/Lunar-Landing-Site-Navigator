@@ -216,6 +216,10 @@
             <dl class="rows">
               <div><dt>Sun</dt><dd><span data-k="r-sun">—</span><em data-pill="rsun">—</em></dd></div>
               <div><dt>Power</dt><dd data-k="r-pow">—</dd></div>
+              <div><dt><label for="rspeed">Top speed</label></dt><dd class="numset">
+                <input id="rspeed" class="num" type="number" inputmode="decimal" min="0.1" step="any" value="4.8" aria-describedby="rspeed-u"><span id="rspeed-u" class="num-u">m/s</span>
+                <button id="rspeed-reset" class="mini" type="button" title="NASA VIPER's real top speed: 0.2 m/s (0.8 km/h)">Real speed</button>
+              </dd></div>
               <div><dt>Lights</dt><dd><button id="rlights" class="mini" type="button" aria-pressed="false">Off</button></dd></div>
               <div><dt>Time</dt><dd><button id="rtime" class="mini" type="button">Jump to sunset</button></dd></div>
             </dl>
