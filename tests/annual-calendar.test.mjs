@@ -245,6 +245,36 @@ test('Escape restores map focus and inert state without triggering the host Esca
   } finally { f.cleanup(); }
 });
 
+test('automatic calendar opening never restores focus to a previous screen outside the selection root', async () => {
+  const f = calendarFixture();
+  try {
+    const previousScreenButton = f.doc.createElement('button');
+    f.doc.body.append(previousScreenButton); previousScreenButton.focus();
+    f.root.hidden = false; await flushAttributes();
+    assert.strictEqual(f.doc.activeElement, f.root.querySelector('.ac-year'));
+    previousScreenButton.hidden = true;
+    f.doc.activeElement.dispatch('keydown', { key: 'Escape' });
+    assert.strictEqual(f.doc.activeElement, f.root.querySelector('[data-ac-view="calendar"]'));
+    assert.notStrictEqual(f.doc.activeElement, previousScreenButton);
+  } finally { f.cleanup(); }
+});
+
+test('reopening the host cannot restore Map focus into the now-hidden calendar panel', async () => {
+  const f = calendarFixture();
+  try {
+    await f.reveal();
+    const previousCalendarFocus = f.root.querySelector('.ac-year');
+    assert.strictEqual(f.doc.activeElement, previousCalendarFocus);
+    f.root.hidden = true; await flushAttributes();
+    f.root.hidden = false; await flushAttributes();
+    assert.equal(f.root.querySelector('.ac-panel').hidden, false);
+    f.root.querySelector('[data-ac-view="map"]').click();
+    assert.equal(f.root.querySelector('.ac-panel').hidden, true);
+    assert.strictEqual(f.doc.activeElement, f.root.querySelector('[data-ac-view="calendar"]'));
+    assert.notStrictEqual(f.doc.activeElement, previousCalendarFocus);
+  } finally { f.cleanup(); }
+});
+
 test('Map/Calendar preference survives conceal/reveal and host hiding releases inert state', async () => {
   const f = calendarFixture();
   try {
