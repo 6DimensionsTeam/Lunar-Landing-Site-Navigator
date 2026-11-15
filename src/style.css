@@ -822,6 +822,7 @@ body {
   padding: 0.42em 0;
   border-top: 1px solid rgba(242, 244, 245, 0.13);
   cursor: pointer;
+  pointer-events: auto;        /* #hud ignores the mouse by default; without this clicks fall through to the globe */
 }
 #sel-site-list div:first-child { border-top: 0; }
 #sel-site-list dt {
