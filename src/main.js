@@ -1001,6 +1001,12 @@ async function boot() {
         // P1 keeps ownSurface after landing; its interactive view still needs bounds.
         isActive: () => mode === 'explore' && controls.enabled && !flight && !globeShown,
       });
+      const { createAnnualCalendar } = await import('./annual-calendar.js');
+      createAnnualCalendar({
+        root: hud.screen('select'), data, zones, eph,
+        getMission: () => mission.cfg,
+        getYear: () => eph.hoursToDate(nowH()).getUTCFullYear(),
+      });
       const missionFlow = createMission({
         eph,
         data,
