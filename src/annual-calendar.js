@@ -64,7 +64,7 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
   const matrixPanel = node('section', 'ac-matrix-panel');
   const matrixHeader = node('div', 'ac-matrix-header');
   const matrixTitle = node('h3', 'ac-section-title', 'Site × year');
-  const instructions = node('p', 'ac-instructions', 'Scroll for all years. Select a cell to inspect; use arrow keys to move. Scores are out of 100.');
+  const instructions = node('p', 'ac-instructions', 'Scroll for all years and sites. Select a cell to inspect; use arrow keys to move. Scores are out of 100.');
   instructions.id = `${prefix}-instructions`;
   const legend = node('p', 'ac-legend');
   for (const [state, label] of [['feasible', '+ Meets criteria'], ['infeasible', '× Fails criteria'], ['unknown', '? Unknown']]) {
@@ -77,6 +77,7 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
   scroll.setAttribute('aria-describedby', instructions.id);
   const detail = node('section', 'ac-detail panel');
   detail.id = `${prefix}-detail`;
+  detail.tabIndex = -1;
   detail.setAttribute('aria-label', 'Selected annual result');
   const live = node('p', 'ac-sr');
   live.setAttribute('role', 'status');
@@ -87,6 +88,7 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
   footer.append(node('summary', '', 'How to read this comparison'));
   footer.append(node('p', '', 'These are annual catalog estimates, not predictions for your selected stay or a launch date. Published regions use calendar-year statistics; data-selected sites use approximate 8,766-hour annual slices and cyclic dark-run estimates.'));
   footer.append(node('p', '', 'The existing ranking uses proxies: Earth visibility of at least 80% does not guarantee uninterrupted communication; non-rough terrain does not confirm a crater floor; permanent shadow within 25 km does not confirm water ice. A passing cell only meets these annual screening rules.'));
+  footer.append(node('p', '', 'A zero or absent darkness limit disables that filter; an optional requirement passes without imposing a constraint.'));
   footer.append(node('p', '', 'The planning year, cell inspection and recommendations here do not change your mission date or the site selected on the map. Unknown data are never counted as a pass.'));
   panel.append(header, overview, workspace, footer, live);
   shell.append(nav, panel);
@@ -138,12 +140,12 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
     mapButton.setAttribute('aria-pressed', 'true');
     calendarButton.setAttribute('aria-pressed', 'false');
     if (restoreFocus && !concealed()) {
-      const target = returnFocus?.isConnected && !returnFocus.inert ? returnFocus : calendarButton;
+      const target = returnFocus?.isConnected && root.contains(returnFocus) && !returnFocus.inert ? returnFocus : calendarButton;
       target.focus({ preventScroll: true });
     }
     returnFocus = null;
   }
-  function pick(cell, { focus = false } = {}) {
+  function pick(cell, { focus = false, revealDetail = false } = {}) {
     const rowIndex = plan.rows.findIndex(row => row.site === cell.site);
     const colIndex = plan.years.indexOf(cell.year);
     if (rowIndex < 0 || colIndex < 0) return;
@@ -162,14 +164,17 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
     active.setAttribute('aria-describedby', detail.id);
     renderDetail(cell);
     live.textContent = `${siteName(cell.site)}, ${cell.year}. ${statusLabel(cell.status)}.`;
-    if (focus) {
+    if (revealDetail && doc.defaultView?.matchMedia?.('(max-width: 720px)')?.matches) {
+      detail.focus({ preventScroll: true });
+      detail.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'instant' });
+    } else if (focus) {
       active.focus({ preventScroll: true });
       active.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
     }
   }
   function inspectButton(text, cell) {
     const el = button('ac-inspect cta2', text);
-    el.addEventListener('click', () => pick(cell, { focus: true }));
+    el.addEventListener('click', () => pick(cell, { focus: true, revealDetail: true }));
     return el;
   }
   function renderOverview() {
@@ -276,6 +281,9 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
   }
   function renderDetail(cell) {
     detail.replaceChildren();
+    const back = button('ac-back-to-calendar cta2', 'Back to calendar');
+    back.addEventListener('click', () => pick(cell, { focus: true }));
+    detail.append(back);
     detail.append(node('p', 'ac-kicker', `INSPECT / ${cell.year} / ${cell.site.id}`));
     detail.append(node('h3', 'ac-detail-title', siteName(cell.site)));
     detail.append(node('p', `ac-verdict ac-${cell.status}`, statusLabel(cell.status)));
@@ -345,7 +353,7 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
   });
   listen(scroll, 'click', event => {
     const target = event.target.closest('button[data-ac-row]');
-    if (target && scroll.contains(target)) pick(plan.rows[Number(target.dataset.acRow)].cells[Number(target.dataset.acCol)]);
+    if (target && scroll.contains(target)) pick(plan.rows[Number(target.dataset.acRow)].cells[Number(target.dataset.acCol)], { revealDetail: true });
   });
   listen(scroll, 'keydown', event => {
     const target = event.target.closest('button[data-ac-row]');
