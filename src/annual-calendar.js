@@ -1,21 +1,24 @@
 import { buildAnnualPlan } from './annual-planner.js';
+import { createAnnualMap } from './annual-map.js';
 import './annual-calendar.css';
 
 let instanceCount = 0;
 const finite = (value, suffix = '', digits = 1) => Number.isFinite(value)
   ? `${value.toFixed(digits)}${suffix}` : 'Unknown';
 const siteName = site => site.en || site.name || site.id;
-const statusLabel = status => ({ feasible: 'Meets annual criteria', infeasible: 'Fails annual criteria', unknown: 'Unknown' })[status];
+const statusLabel = status => ({ feasible: 'Meets annual criteria', infeasible: 'Fails annual criteria', unknown: 'Unknown annual evidence' })[status];
+const statusSymbol = status => status === 'feasible' ? '+' : status === 'infeasible' ? '×' : '?';
 
-/** An inspection-only comparison. No selection, mission date, or host clock is changed. */
+/** Local inspection only. Recommendations never commit a site or change the host mission clock. */
 export function createAnnualCalendar({ root, data, zones, eph, getMission = () => null, getYear = () => null }) {
-  if (!root) throw new TypeError('The annual calendar requires its selection screen.');
+  if (!root) throw new TypeError('The annual planner requires its selection screen.');
   const doc = root.ownerDocument;
   const prefix = `ac-${++instanceCount}`;
   const listeners = [];
   const hostInert = new Map();
   let opened = false, destroyed = false, preferCalendar = true, plan = null, planningYear = null, selected = null;
-  let buttons = [], returnFocus = null, wasConcealed = root.hidden || root.classList.contains('out');
+  let buttons = [], timelineButtons = [], returnFocus = null;
+  let wasConcealed = root.hidden || root.classList.contains('out');
 
   function node(tag, className, text) {
     const el = doc.createElement(tag);
@@ -35,8 +38,8 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
   const shell = node('div', 'ac-shell');
   const nav = node('nav', 'ac-switch');
   nav.setAttribute('aria-label', 'Site survey view');
-  const mapButton = button('ac-view-button', 'Map');
-  const calendarButton = button('ac-view-button', 'Annual calendar');
+  const mapButton = button('ac-view-button', '3D survey');
+  const calendarButton = button('ac-view-button', 'Plan a visit');
   mapButton.dataset.acView = 'map';
   calendarButton.dataset.acView = 'calendar';
   mapButton.setAttribute('aria-pressed', 'true');
@@ -49,50 +52,92 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
   calendarButton.setAttribute('aria-controls', panel.id);
   const header = node('header', 'ac-header');
   const titleBlock = node('div', 'ac-title-block');
-  titleBlock.append(node('p', 'ac-kicker', 'LLN / ANNUAL PLANNING'));
-  const title = node('h2', 'ac-title', 'Compare the years');
+  const title = node('h2', 'ac-title', 'Where and when?');
   title.id = `${prefix}-title`;
-  titleBlock.append(title, node('p', 'ac-subtitle', 'Annual catalog comparison · not launch windows'));
+  titleBlock.append(node('p', 'ac-kicker', 'LLN / VISIT PLANNER'), title,
+    node('p', 'ac-subtitle', 'Annual estimates · not launch windows'));
   const yearLabel = node('label', 'ac-year-label', 'Planning from');
   const yearSelect = node('select', 'ac-year');
   yearSelect.id = `${prefix}-year`;
   yearLabel.htmlFor = yearSelect.id;
   yearLabel.append(yearSelect);
   header.append(titleBlock, yearLabel);
+
   const overview = node('div', 'ac-overview');
   const workspace = node('div', 'ac-workspace');
-  const matrixPanel = node('section', 'ac-matrix-panel');
-  const matrixHeader = node('div', 'ac-matrix-header');
-  const matrixTitle = node('h3', 'ac-section-title', 'Site × year');
-  const instructions = node('p', 'ac-instructions', 'Scroll for all years and sites. Select a cell to inspect; use arrow keys to move. Scores are out of 100.');
+  const mapRoot = node('div', 'ac-map-root');
+  const detail = node('section', 'ac-detail');
+  detail.id = `${prefix}-detail`;
+  detail.tabIndex = -1;
+  detail.setAttribute('aria-label', 'Inspected annual result');
+  const siteLabel = node('label', 'ac-site-label', 'Explore a site');
+  const siteSelect = node('select', 'ac-site-select');
+  siteSelect.id = `${prefix}-site`;
+  siteLabel.htmlFor = siteSelect.id;
+  siteLabel.append(siteSelect);
+  const detailHeading = node('div', 'ac-detail-heading');
+  const detailYear = node('h3', 'ac-detail-year');
+  const verdict = node('p', 'ac-verdict');
+  detailHeading.append(detailYear, verdict);
+  const mainStats = node('dl', 'ac-main-stats');
+  const mainValues = [];
+  for (const label of ['Sun visible', 'Earth visible', 'Longest dark']) {
+    const item = node('div');
+    const value = node('dd');
+    item.append(node('dt', '', label), value);
+    mainValues.push(value);
+    mainStats.append(item);
+  }
+  const detailNote = node('p', 'ac-selection-note');
+  const evidence = node('details', 'ac-evidence');
+  evidence.append(node('summary', '', 'Why this result'));
+  const evidenceBody = node('div', 'ac-evidence-body');
+  evidence.append(evidenceBody);
+  detail.append(siteLabel, detailHeading, mainStats, detailNote, evidence);
+  workspace.append(mapRoot, detail);
+
+  const timelineSection = node('section', 'ac-timeline-section');
+  const timelineHeading = node('div', 'ac-timeline-heading');
+  const timelineTitle = node('h3', 'ac-timeline-title');
+  timelineTitle.id = `${prefix}-timeline-title`;
+  const bestBadge = node('p', 'ac-best-year');
+  timelineHeading.append(timelineTitle, bestBadge);
+  const timeline = node('div', 'ac-timeline');
+  timeline.setAttribute('role', 'group');
+  timeline.setAttribute('aria-labelledby', timelineTitle.id);
+  timelineSection.append(timelineHeading, timeline);
+
+  const comparison = node('details', 'ac-comparison');
+  const comparisonLabel = node('summary');
+  const comparisonBody = node('div', 'ac-comparison-body');
+  const summary = node('section', 'ac-summary');
+  const instructions = node('p', 'ac-instructions', 'Select a cell to inspect it on the map. Arrow keys move between cells. Scores are out of 100.');
   instructions.id = `${prefix}-instructions`;
   const legend = node('p', 'ac-legend');
   for (const [state, label] of [['feasible', '+ Meets criteria'], ['infeasible', '× Fails criteria'], ['unknown', '? Unknown']]) {
-    const item = node('span', `ac-key ac-${state}`, label);
-    legend.append(item);
+    legend.append(node('span', `ac-key ac-${state}`, label));
   }
-  matrixHeader.append(matrixTitle, legend, instructions);
   const scroll = node('div', 'ac-table-scroll');
   scroll.setAttribute('aria-label', 'Annual site comparison');
   scroll.setAttribute('aria-describedby', instructions.id);
-  const detail = node('section', 'ac-detail panel');
-  detail.id = `${prefix}-detail`;
-  detail.tabIndex = -1;
-  detail.setAttribute('aria-label', 'Selected annual result');
+  comparisonBody.append(summary, legend, instructions, scroll);
+  comparison.append(comparisonLabel, comparisonBody);
+  const method = node('details', 'ac-method');
+  method.append(node('summary', '', 'About these estimates'));
+  method.append(node('p', '', 'The catalog summarizes each calendar year. These estimates screen annual conditions; they do not predict an exact launch date or conditions during a selected stay.'));
+  method.append(node('p', '', 'The existing ranking uses proxies: Earth visibility of at least 80% does not guarantee uninterrupted communication; non-rough terrain does not confirm a crater floor; permanent shadow within 25 km does not confirm water ice.'));
+  method.append(node('p', '', 'A zero or absent darkness limit disables that filter. Unselected optional requirements impose no constraint. Unknown annual data are never counted as a pass. Catalog-best years consider the full period; the recommendation considers only the planning year onward.'));
+  method.append(node('p', '', 'Exploring this map and timeline does not change your mission date or the site selected in the 3D survey.'));
   const live = node('p', 'ac-sr');
   live.setAttribute('role', 'status');
   live.setAttribute('aria-live', 'polite');
-  matrixPanel.append(matrixHeader, scroll);
-  workspace.append(matrixPanel, detail);
-  const footer = node('details', 'ac-method');
-  footer.append(node('summary', '', 'How to read this comparison'));
-  footer.append(node('p', '', 'These are annual catalog estimates, not predictions for your selected stay or a launch date. Published regions use calendar-year statistics; data-selected sites use approximate 8,766-hour annual slices and cyclic dark-run estimates.'));
-  footer.append(node('p', '', 'The existing ranking uses proxies: Earth visibility of at least 80% does not guarantee uninterrupted communication; non-rough terrain does not confirm a crater floor; permanent shadow within 25 km does not confirm water ice. A passing cell only meets these annual screening rules.'));
-  footer.append(node('p', '', 'A zero or absent darkness limit disables that filter; an optional requirement passes without imposing a constraint.'));
-  footer.append(node('p', '', 'The planning year, cell inspection and recommendations here do not change your mission date or the site selected on the map. Unknown data are never counted as a pass.'));
-  panel.append(header, overview, workspace, footer, live);
+  panel.append(header, overview, workspace, timelineSection, comparison, method, live);
   shell.append(nav, panel);
   root.append(shell);
+  const annualMap = createAnnualMap({ root: mapRoot, data, onSelect: id => {
+    const row = plan?.rows.find(item => item.site.id === id);
+    if (row && selected) pick(row.cells[selected.col]);
+  } });
 
   const concealed = () => root.hidden || root.classList.contains('out');
   function initialYear() {
@@ -114,17 +159,24 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
       hostInert.clear();
     }
   }
+  function closeDisclosures() {
+    for (const disclosure of panel.querySelectorAll('details')) disclosure.open = false;
+  }
   function show() {
     if (destroyed || concealed()) return false;
     preferCalendar = true;
     if (opened) return true;
     returnFocus = doc.activeElement;
     planningYear = initialYear();
+    selected = null;
+    closeDisclosures();
     refresh();
     opened = true;
     setHostInert(true);
     root.classList.add('ac-calendar-open');
     panel.hidden = false;
+    panel.scrollTop = 0;
+    timeline.scrollLeft = 0;
     mapButton.setAttribute('aria-pressed', 'false');
     calendarButton.setAttribute('aria-pressed', 'true');
     yearSelect.focus({ preventScroll: true });
@@ -137,6 +189,7 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
     panel.hidden = true;
     root.classList.remove('ac-calendar-open');
     setHostInert(false);
+    closeDisclosures();
     mapButton.setAttribute('aria-pressed', 'true');
     calendarButton.setAttribute('aria-pressed', 'false');
     if (restoreFocus && !concealed()) {
@@ -146,8 +199,11 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
     }
     returnFocus = null;
   }
-  function pick(cell, { focus = false, revealDetail = false } = {}) {
-    const rowIndex = plan.rows.findIndex(row => row.site === cell.site);
+  function selectedCell() {
+    return selected && plan?.rows[selected.row]?.cells[selected.col];
+  }
+  function pick(cell, { focus = null } = {}) {
+    const rowIndex = plan.rows.findIndex(row => row.site.id === cell.site.id);
     const colIndex = plan.years.indexOf(cell.year);
     if (rowIndex < 0 || colIndex < 0) return;
     if (selected) {
@@ -159,48 +215,54 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
       }
     }
     selected = { row: rowIndex, col: colIndex };
-    const active = buttons[rowIndex][colIndex];
-    active.tabIndex = 0;
-    active.setAttribute('aria-pressed', 'true');
-    active.setAttribute('aria-describedby', detail.id);
+    const active = buttons[rowIndex]?.[colIndex];
+    if (active) {
+      active.tabIndex = 0;
+      active.setAttribute('aria-pressed', 'true');
+      active.setAttribute('aria-describedby', detail.id);
+    }
+    siteSelect.value = cell.site.id;
     renderDetail(cell);
+    updateTimeline(plan.rows[rowIndex]);
+    annualMap.update({ cells: plan.yearSummaries[colIndex].cells, selectedId: cell.site.id, recommendedId: plan.recommendation?.site.id });
     live.textContent = `${siteName(cell.site)}, ${cell.year}. ${statusLabel(cell.status)}.`;
-    if (revealDetail && doc.defaultView?.matchMedia?.('(max-width: 720px)')?.matches) {
-      detail.focus({ preventScroll: true });
-      detail.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'instant' });
-    } else if (focus) {
-      active.focus({ preventScroll: true });
-      active.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+    const target = focus === 'table' ? active : focus === 'timeline' ? timelineButtons[colIndex] : null;
+    if (target) {
+      target.focus({ preventScroll: true });
+      target.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
     }
   }
-  function inspectButton(text, cell) {
-    const el = button('ac-inspect cta2', text);
-    el.addEventListener('click', () => pick(cell, { focus: true, revealDetail: true }));
-    return el;
-  }
   function renderOverview() {
-    overview.replaceChildren();
     const recommendation = node('section', 'ac-recommendation');
-    recommendation.append(node('p', 'ac-kicker', `RECOMMENDED FROM ${planningYear}`));
+    const copy = node('div', 'ac-recommend-copy');
+    copy.append(node('p', 'ac-kicker', `RECOMMENDED FROM ${planningYear}`));
     const best = plan.recommendation;
     if (best) {
       const heading = node('h3', 'ac-recommend-name', siteName(best.site));
       heading.append(node('b', 'ac-recommend-year', best.year));
-      recommendation.append(heading, node('p', 'ac-copy', `Highest-scoring eligible site–year · ${finite(best.score * 100, '/100')} · annual criteria only`));
-      recommendation.append(inspectButton('Inspect recommendation', best));
-      if (plan.earliestFeasible && plan.earliestFeasible.year < best.year) {
-        recommendation.append(inspectButton(`Earliest fit: ${plan.earliestFeasible.year} · ${siteName(plan.earliestFeasible.site)}`, plan.earliestFeasible));
-      } else if (plan.earliestFeasible?.year > planningYear) {
-        recommendation.append(node('p', 'ac-copy', `Earliest annual fit: ${plan.earliestFeasible.year}. No site meets the criteria in ${planningYear}.`));
+      copy.append(heading);
+      const earliest = plan.earliestFeasible;
+      let sentence = 'Highest-ranked annual match from your planning year.';
+      if (earliest && earliest.year > planningYear) {
+        sentence = `Earliest annual match: ${earliest.year} at ${siteName(earliest.site)}.`;
+      } else if (earliest && earliest.year < best.year) {
+        sentence = `An earlier annual match: ${earliest.year} at ${siteName(earliest.site)}.`;
       }
+      copy.append(node('p', 'ac-copy', sentence));
+      const inspect = button('ac-inspect', 'Show recommendation');
+      inspect.dataset.acAction = 'recommendation';
+      recommendation.append(copy, inspect);
     } else {
-      recommendation.append(node('h3', 'ac-recommend-name', 'No confirmed annual fit'));
-      recommendation.append(node('p', 'ac-copy', plan.unknownYears.some(year => year >= planningYear)
-        ? 'Available evidence cannot confirm an annual fit; some annual data are unknown.'
-        : 'No site meets every current screening rule from this planning year onward.'));
+      copy.append(node('h3', 'ac-recommend-name', 'No confirmed annual fit'));
+      copy.append(node('p', 'ac-copy', plan.unknownYears.some(year => year >= planningYear)
+        ? 'The available annual evidence cannot confirm a fit; some data are unknown.'
+        : 'No site meets every current annual criterion from this planning year onward.'));
+      recommendation.append(copy);
     }
-    const summary = node('section', 'ac-summary');
-    summary.append(node('h3', 'ac-section-title', `Catalog / ${plan.years[0]}–${plan.years.at(-1)}`));
+    overview.replaceChildren(recommendation);
+  }
+  function renderSummary() {
+    summary.replaceChildren(node('h3', 'ac-section-title', `Catalog / ${plan.years[0]}–${plan.years.at(-1)}`));
     const metrics = node('div', 'ac-summary-metrics');
     for (const [value, label] of [[plan.noFitYears.length, 'years with no fit'], [plan.robustSites.length, `sites fit all ${plan.years.length} years`], [plan.unknownYears.length, 'years with unknowns']]) {
       const metric = node('p', 'ac-summary-metric');
@@ -208,19 +270,45 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
       metrics.append(metric);
     }
     summary.append(metrics);
-    const yearSummary = plan.yearSummaries.find(item => item.year === planningYear);
-    summary.append(node('p', 'ac-copy', `${planningYear}: ${yearSummary.feasibleCount} meet · ${yearSummary.infeasibleCount} fail · ${yearSummary.unknownCount} unknown`));
-    const robust = node('p', 'ac-robust', plan.robustSites.length
-      ? `All-year sites: ${plan.robustSites.map(row => row.site.id).join(', ')}. Annual screening stability is not a continuous operating window.`
-      : 'No site meets the current annual screening rules in every catalog year.');
-    summary.append(robust);
+    const annual = plan.yearSummaries.find(item => item.year === planningYear);
+    summary.append(node('p', 'ac-copy', `${planningYear}: ${annual.feasibleCount} meet · ${annual.infeasibleCount} fail · ${annual.unknownCount} unknown`));
+    summary.append(node('p', 'ac-no-fit-years', plan.noFitYears.length
+      ? `Years with no annual fit: ${plan.noFitYears.join(', ')}.` : 'Every catalog year has at least one annual fit or unknown evidence.'));
+    summary.append(node('p', 'ac-robust', plan.robustSites.length
+      ? `Sites meeting criteria in every catalog year: ${plan.robustSites.map(row => siteName(row.site)).join(', ')}.`
+      : 'No site meets the annual criteria in every catalog year.'));
+    if (plan.unknownYears.length) summary.append(node('p', 'ac-copy', `Unknown annual evidence: ${plan.unknownYears.join(', ')}. Unknown cells are not counted as a pass or a confirmed failure.`));
     const needs = getMission()?.needs || {};
     const rules = [Number.isFinite(needs.maxDarkH) && needs.maxDarkH > 0 ? `dark ≤ ${needs.maxDarkH} h` : 'no dark limit'];
-    if (needs.continuousComm) rules.push('Earth link ≥ 80%');
+    if (needs.continuousComm) rules.push('Earth visibility ≥ 80%');
     if (needs.craterFloor) rules.push('crater-floor proxy');
     if (needs.iceNearby) rules.push('near-shadow proxy');
     summary.append(node('p', 'ac-requirements', `Mission rules · ${rules.join(' · ')}`));
-    overview.append(recommendation, summary);
+    comparisonLabel.textContent = `Compare all ${plan.rows.length} sites`;
+  }
+  function renderTimeline() {
+    timelineButtons = plan.years.map(year => {
+      const item = button('ac-year-button');
+      item.dataset.acYear = String(year);
+      const symbol = node('span', 'ac-year-symbol');
+      symbol.setAttribute('aria-hidden', 'true');
+      item.append(symbol, node('span', 'ac-year-number', year));
+      return item;
+    });
+    timeline.replaceChildren(...timelineButtons);
+  }
+  function updateTimeline(row) {
+    timelineTitle.textContent = `Years for ${siteName(row.site)}`;
+    bestBadge.textContent = row.bestYear == null ? 'No confirmed annual fit' : `Catalog best ${row.bestYears.join(' · ')}`;
+    for (const [index, cell] of row.cells.entries()) {
+      const item = timelineButtons[index];
+      const active = index === selected.col;
+      item.className = `ac-year-button ac-${cell.status}`;
+      item.tabIndex = active ? 0 : -1;
+      item.setAttribute('aria-pressed', String(active));
+      item.setAttribute('aria-label', `${cell.year}: ${statusLabel(cell.status)}`);
+      item.firstElementChild.textContent = statusSymbol(cell.status);
+    }
   }
   function renderTable() {
     const table = node('table', 'ac-table');
@@ -281,58 +369,56 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
     scroll.replaceChildren(table);
   }
   function renderDetail(cell) {
-    detail.replaceChildren();
-    const back = button('ac-back-to-calendar cta2', 'Back to calendar');
-    back.addEventListener('click', () => {
-      pick(cell, { focus: true });
-      // Keep the sticky year headings below the mobile view switch, too.
-      scroll.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'instant' });
-    });
-    detail.append(back);
-    detail.append(node('p', 'ac-kicker', `INSPECT / ${cell.year} / ${cell.site.id}`));
-    detail.append(node('h3', 'ac-detail-title', siteName(cell.site)));
-    detail.append(node('p', `ac-verdict ac-${cell.status}`, statusLabel(cell.status)));
-    detail.append(node('p', 'ac-source', cell.site.source === 'nasa' ? 'Published Artemis region' : 'Data-selected candidate'));
+    detailYear.textContent = cell.year;
+    verdict.className = `ac-verdict ac-${cell.status}`;
+    verdict.textContent = statusLabel(cell.status);
+    mainValues[0].textContent = finite(cell.stats?.sun_visible_pct, '%');
+    mainValues[1].textContent = finite(cell.stats?.earth_visible_pct, '%');
+    mainValues[2].textContent = finite(cell.stats?.longest_dark_h, ' h', 0);
+    const row = plan.rows[selected.row];
+    detailNote.textContent = cell.status === 'unknown' ? cell.unknownReason
+      : cell.fails.length ? cell.fails[0]
+        : row.bestYear === cell.year ? 'One of this site’s best annual matches in the catalog.'
+          : row.bestYear != null ? `This site’s catalog-best annual match is ${row.bestYear}.` : '';
+    evidenceBody.replaceChildren(node('p', 'ac-source', cell.site.source === 'nasa' ? 'Published Artemis region' : 'Data-selected candidate'));
     if (cell.status === 'unknown') {
-      detail.append(node('p', 'ac-copy', cell.unknownReason), node('p', 'ac-copy', 'No annual score or recommendation is inferred from missing evidence.'));
+      evidenceBody.append(node('p', 'ac-copy', 'No annual score or recommendation is inferred from missing evidence.'));
       return;
     }
-    const stats = node('dl', 'ac-stats rows');
+    const stats = node('dl', 'ac-stats');
     for (const [label, value] of [
       ['Ranking score', finite(cell.score * 100, ' / 100')],
       ['Mean solar visibility', finite(cell.stats.sun_mean_pct, '%')],
-      ['Sun visible', finite(cell.stats.sun_visible_pct, '%')],
-      ['Earth visible', finite(cell.stats.earth_visible_pct, '%')],
       ['Sun + Earth', finite(cell.stats.both_pct, '%')],
-      ['Longest dark', finite(cell.stats.longest_dark_h, ' h', 0)],
       ['Longest link outage', finite(cell.stats.longest_blind_h, ' h', 0)],
       ['Ground slope', finite(cell.ground?.slopeDeg, '°')],
       ['Nearest permanent shadow', finite(cell.ground?.iceDistKm, ' km')],
     ]) {
-      const row = node('div');
-      row.append(node('dt', '', label), node('dd', '', value));
-      stats.append(row);
+      const item = node('div');
+      item.append(node('dt', '', label), node('dd', '', value));
+      stats.append(item);
     }
-    detail.append(stats, node('h4', 'ac-section-title', 'Screening verdicts'));
+    evidenceBody.append(stats, node('h4', 'ac-section-title', 'Screening verdicts'));
     const verdicts = node('ul', 'ac-verdict-list');
-    for (const verdict of cell.verdicts) {
-      const li = node('li', verdict.pass ? 'ac-pass-text' : 'ac-fail-text');
-      li.append(node('b', '', verdict.pass ? 'PASS' : 'FAIL'), node('span', '', `${verdict.label}: ${verdict.value}`));
-      verdicts.append(li);
+    for (const result of cell.verdicts) {
+      const item = node('li', result.pass ? 'ac-pass-text' : 'ac-fail-text');
+      item.append(node('b', '', result.pass ? 'PASS' : 'FAIL'), node('span', '', `${result.label}: ${result.value}`));
+      verdicts.append(item);
     }
-    detail.append(verdicts);
+    evidenceBody.append(verdicts);
     if (cell.fails.length) {
-      detail.append(node('h4', 'ac-section-title', 'Why it fails'));
+      evidenceBody.append(node('h4', 'ac-section-title', 'Why it fails'));
       const fails = node('ul', 'ac-fail-list');
       for (const reason of cell.fails) fails.append(node('li', '', reason));
-      detail.append(fails);
+      evidenceBody.append(fails);
     }
-    if (cell.notes.length) detail.append(node('p', 'ac-detail-note', cell.notes.join(' · ')));
-    detail.append(node('p', 'ac-detail-note', 'Pass/fail follows the existing annual ranking proxies; it does not establish continuous communication, a crater floor, confirmed ice or a usable mission-day window.'));
+    if (cell.notes.length) evidenceBody.append(node('p', 'ac-detail-note', cell.notes.join(' · ')));
+    evidenceBody.append(node('p', 'ac-detail-note', 'These annual screening proxies do not establish continuous communication, a crater floor, confirmed ice or conditions during your selected stay.'));
   }
   function refresh() {
     if (destroyed) return;
-    const previous = selected && plan ? { id: plan.rows[selected.row].site.id, year: plan.years[selected.col] } : null;
+    const old = selectedCell();
+    const previous = old && { id: old.site.id, year: old.year };
     planningYear ??= initialYear();
     plan = buildAnnualPlan({ data, zones, needs: getMission()?.needs || {}, fromYear: planningYear });
     yearSelect.replaceChildren(...plan.years.map(year => {
@@ -341,13 +427,25 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
       return option;
     }));
     yearSelect.value = String(planningYear);
+    siteSelect.replaceChildren(...plan.rows.map(row => {
+      const option = node('option', '', siteName(row.site));
+      option.value = row.site.id;
+      return option;
+    }));
     selected = null;
     renderOverview();
+    renderSummary();
     renderTable();
+    renderTimeline();
     const preserved = previous && plan.rows.find(row => row.site.id === previous.id)?.cells.find(cell => cell.year === previous.year);
-    const initial = preserved || plan.recommendation || plan.yearSummaries.find(summary => summary.year === planningYear)?.cells[0];
+    const initial = preserved || plan.recommendation || plan.yearSummaries.find(item => item.year === planningYear)?.cells[0];
     if (initial) pick(initial);
-    else detail.replaceChildren(node('p', 'ac-copy', 'No candidate sites are available.'));
+    else {
+      detailYear.textContent = '—';
+      verdict.textContent = 'No candidate sites are available';
+      timelineTitle.textContent = 'No annual site evidence';
+      annualMap.update({ cells: [], selectedId: null, recommendedId: null });
+    }
   }
   listen(calendarButton, 'click', show);
   listen(mapButton, 'click', () => hide());
@@ -356,9 +454,44 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
     refresh();
     live.textContent = `Planning from ${planningYear}. ${plan.recommendation ? `${siteName(plan.recommendation.site)}, ${plan.recommendation.year}, is recommended.` : 'No confirmed annual fit.'}`;
   });
+  listen(siteSelect, 'change', () => {
+    const row = plan.rows.find(item => item.site.id === siteSelect.value);
+    if (row && selected) pick(row.cells[selected.col]);
+  });
+  listen(overview, 'click', event => {
+    if (event.target.closest('[data-ac-action="recommendation"]') && plan.recommendation) {
+      pick(plan.recommendation);
+      workspace.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+    }
+  });
+  listen(timeline, 'click', event => {
+    const target = event.target.closest('button[data-ac-year]');
+    if (target && timeline.contains(target) && selected) {
+      pick(plan.rows[selected.row].cells[plan.years.indexOf(Number(target.dataset.acYear))]);
+    }
+  });
+  listen(timeline, 'keydown', event => {
+    const target = event.target.closest('button[data-ac-year]');
+    if (!target || !timeline.contains(target) || !selected) return;
+    let col = plan.years.indexOf(Number(target.dataset.acYear));
+    if (event.key === 'ArrowRight') col++;
+    else if (event.key === 'ArrowLeft') col--;
+    else if (event.key === 'Home') col = 0;
+    else if (event.key === 'End') col = plan.years.length - 1;
+    else return;
+    event.preventDefault();
+    event.stopPropagation();
+    col = Math.max(0, Math.min(plan.years.length - 1, col));
+    pick(plan.rows[selected.row].cells[col], { focus: 'timeline' });
+  });
   listen(scroll, 'click', event => {
     const target = event.target.closest('button[data-ac-row]');
-    if (target && scroll.contains(target)) pick(plan.rows[Number(target.dataset.acRow)].cells[Number(target.dataset.acCol)], { revealDetail: true });
+    if (target && scroll.contains(target)) {
+      pick(plan.rows[Number(target.dataset.acRow)].cells[Number(target.dataset.acCol)]);
+      comparison.open = false;
+      siteSelect.focus({ preventScroll: true });
+      detail.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+    }
   });
   listen(scroll, 'keydown', event => {
     const target = event.target.closest('button[data-ac-row]');
@@ -375,16 +508,21 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
     event.stopPropagation();
     row = Math.max(0, Math.min(plan.rows.length - 1, row));
     col = Math.max(0, Math.min(plan.years.length - 1, col));
-    pick(plan.rows[row].cells[col], { focus: true });
+    pick(plan.rows[row].cells[col], { focus: 'table' });
   });
   listen(root, 'keydown', event => {
     if (opened && event.key === 'Escape') {
       event.preventDefault();
       event.stopImmediatePropagation();
-      hide();
+      const disclosures = [...panel.querySelectorAll('details[open]')];
+      if (disclosures.length) {
+        const focused = disclosures.find(item => item.contains(doc.activeElement)) || disclosures.at(-1);
+        closeDisclosures();
+        focused.querySelector('summary')?.focus({ preventScroll: true });
+      } else hide();
     }
   }, true);
-  // Calendar shortcuts must not also rotate the host globe or leave the selection screen.
+  // Inspection shortcuts must not also rotate the survey or leave its host screen.
   listen(panel, 'keydown', event => event.stopPropagation());
   listen(shell, 'pointerdown', event => event.stopPropagation());
   listen(shell, 'wheel', event => { if (opened) event.stopPropagation(); }, { passive: true });
@@ -405,6 +543,7 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
     hide({ restoreFocus: false, remember: false });
     destroyed = true;
     observer.disconnect();
+    annualMap.destroy();
     listeners.forEach(remove => remove());
     shell.remove();
   }

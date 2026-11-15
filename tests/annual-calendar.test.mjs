@@ -3,6 +3,8 @@ import { readFile } from 'node:fs/promises';
 import { inflateSync } from 'node:zlib';
 import test from 'node:test';
 import { createZones } from '../src/zones.js';
+import { buildAnnualPlan } from '../src/annual-planner.js';
+import { candidatePool } from '../src/rank.js';
 
 const main = await readFile(new URL('../src/main.js', import.meta.url), 'utf8');
 const p2Start = main.indexOf('  // P2, mission framing.');
@@ -49,335 +51,302 @@ test('native mission.ready retains the exact payload and current upstream runnin
   assert.deepEqual(Object.keys(config.needs), ['craterFloor', 'iceNearby', 'continuousComm', 'maxDarkH']);
 });
 
-// A small DOM fixture for this module's standard element/event operations. It
-// models capture/bubble ordering and asynchronous attribute observations, the
-// boundaries that matter when the calendar shares P1's existing selection root.
-const observations = new Set();
-class AttributeObserver {
-  constructor(callback) { this.callback = callback; this.pending = false; }
-  observe(target, options) { this.target = target; this.options = options; observations.add(this); }
-  disconnect() { observations.delete(this); }
-}
-function changed(target, name) {
-  for (const observer of observations) {
-    if (observer.target !== target || !observer.options.attributeFilter.includes(name) || observer.pending) continue;
-    observer.pending = true;
-    queueMicrotask(() => {
-      observer.pending = false;
-      if (observations.has(observer)) observer.callback([{ target, attributeName: name }]);
-    });
-  }
-}
-const dataKey = name => name.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
-class Element {
-  constructor(tagName, ownerDocument) {
-    this.tagName = tagName.toUpperCase(); this.ownerDocument = ownerDocument;
-    this.children = []; this.parentElement = null; this.dataset = {}; this.attributes = new Map();
-    this.handlers = new Map(); this.classes = new Set(); this.inert = false; this.disabled = false;
-    this._hidden = false; this._text = ''; this.tabIndex = -1;
-    this.classList = {
-      contains: name => this.classes.has(name),
-      add: (...names) => { const before = this.className; names.forEach(name => this.classes.add(name)); if (before !== this.className) changed(this, 'class'); },
-      remove: (...names) => { const before = this.className; names.forEach(name => this.classes.delete(name)); if (before !== this.className) changed(this, 'class'); },
-      toggle: (name, on) => { const value = on ?? !this.classes.has(name); this.classList[value ? 'add' : 'remove'](name); return value; },
-    };
-  }
-  get className() { return [...this.classes].join(' '); }
-  set className(value) { this.classes = new Set(value.split(/\s+/).filter(Boolean)); changed(this, 'class'); }
-  get hidden() { return this._hidden; }
-  set hidden(value) { const next = Boolean(value); if (next !== this._hidden) { this._hidden = next; changed(this, 'hidden'); } }
-  get textContent() { return this._text + this.children.map(child => child.textContent).join(''); }
-  set textContent(value) { this.children.forEach(child => { child.parentElement = null; }); this.children = []; this._text = String(value); }
-  get isConnected() { return this === this.ownerDocument.body || Boolean(this.parentElement?.isConnected); }
-  append(...children) {
-    for (const child of children) { child.remove(); child.parentElement = this; this.children.push(child); }
-  }
-  replaceChildren(...children) { this.textContent = ''; this.append(...children); }
-  remove() {
-    if (this.parentElement) this.parentElement.children = this.parentElement.children.filter(child => child !== this);
-    this.parentElement = null;
-  }
-  setAttribute(name, value) { this.attributes.set(name, String(value)); }
-  getAttribute(name) { return this.attributes.get(name) ?? null; }
-  removeAttribute(name) { this.attributes.delete(name); }
-  contains(node) { return node === this || this.children.some(child => child.contains(node)); }
-  matches(selector) {
-    const tag = selector.match(/^[a-z]+/i)?.[0];
-    if (tag && this.tagName.toLowerCase() !== tag.toLowerCase()) return false;
-    for (const [, name] of selector.matchAll(/\.([\w-]+)/g)) if (!this.classes.has(name)) return false;
-    for (const [, name, expected] of selector.matchAll(/\[([^=\]]+)(?:="([^"]*)")?\]/g)) {
-      const value = name.startsWith('data-') ? this.dataset[dataKey(name.slice(5))] : this.getAttribute(name);
-      if (value == null || (expected !== undefined && value !== expected)) return false;
-    }
-    return true;
-  }
-  closest(selector) { return this.matches(selector) ? this : this.parentElement?.closest(selector) ?? null; }
-  querySelectorAll(selector) { return this.children.flatMap(child => [...(child.matches(selector) ? [child] : []), ...child.querySelectorAll(selector)]); }
-  querySelector(selector) { return this.querySelectorAll(selector)[0] ?? null; }
-  focus() {
-    for (let node = this; node; node = node.parentElement) if (node.hidden || node.inert) return;
-    this.ownerDocument.activeElement = this;
-  }
-  scrollIntoView(options) { this.scrolled = true; (this.scrollCalls ??= []).push(options); }
-  addEventListener(type, handler, options = {}) {
-    const entries = this.handlers.get(type) ?? [];
-    entries.push({ handler, capture: options === true || options.capture === true }); this.handlers.set(type, entries);
-  }
-  removeEventListener(type, handler) { this.handlers.set(type, (this.handlers.get(type) ?? []).filter(entry => entry.handler !== handler)); }
-  dispatch(type, props = {}) {
-    const event = { type, target: this, defaultPrevented: false, stopped: false, immediate: false, ...props,
-      preventDefault() { this.defaultPrevented = true; }, stopPropagation() { this.stopped = true; },
-      stopImmediatePropagation() { this.stopped = true; this.immediate = true; } };
-    const path = []; for (let node = this; node; node = node.parentElement) path.push(node);
-    const invoke = (node, capture) => {
-      event.currentTarget = node;
-      for (const entry of node.handlers.get(type) ?? []) {
-        if (entry.capture === capture) entry.handler(event);
-        if (event.immediate) break;
-      }
-    };
-    for (const node of [...path].reverse()) { invoke(node, true); if (event.stopped) return event; }
-    for (const node of path) { invoke(node, false); if (event.stopped) break; }
-    return event;
-  }
-  click() { this.focus(); return this.dispatch('click'); }
-}
-class Document {
-  constructor(width = 1280) {
-    this.body = new Element('body', this); this.activeElement = this.body;
-    this.defaultView = { innerWidth: width, matchMedia: query => ({
-      matches: this.defaultView.innerWidth <= Number(query.match(/max-width:\s*(\d+)px/)?.[1]),
-    }) };
-  }
-  createElement(name) { return new Element(name, this); }
-}
-const flushAttributes = async () => { for (let n = 0; n < 5; n++) await Promise.resolve(); };
+import { AttributeObserver, Document, flushAttributes } from './fixtures/annual-dom.js';
+const mapSource = await readFile(new URL('../src/annual-map.js', import.meta.url), 'utf8');
+const executableMap = mapSource.replace("import './annual-map.css';", '')
+  .replace("'./geo.js'", JSON.stringify(new URL('../src/geo.js', import.meta.url).href));
+const mapModuleURL = `data:text/javascript;base64,${Buffer.from(executableMap).toString('base64')}`;
 const calendarSource = await readFile(new URL('../src/annual-calendar.js', import.meta.url), 'utf8');
 const executableCalendar = calendarSource.replace("import './annual-calendar.css';", '')
-  .replace("'./annual-planner.js'", JSON.stringify(new URL('../src/annual-planner.js', import.meta.url).href));
+  .replace("'./annual-planner.js'", JSON.stringify(new URL('../src/annual-planner.js', import.meta.url).href))
+  .replace("'./annual-map.js'", JSON.stringify(mapModuleURL));
 const { createAnnualCalendar } = await import(`data:text/javascript;base64,${Buffer.from(executableCalendar).toString('base64')}`);
-const [sites, candidates, zoneMeta, zoneBytes] = await Promise.all([
+const [sites, candidates, zoneMeta, zoneBytes, moonPolarMeta, terrainMeta] = await Promise.all([
   readFile(new URL('../src/data/sites.json', import.meta.url), 'utf8').then(JSON.parse),
   readFile(new URL('../src/data/candidates.json', import.meta.url), 'utf8').then(JSON.parse),
   readFile(new URL('../src/data/zones.json', import.meta.url), 'utf8').then(JSON.parse),
   readFile(new URL('../src/data/zones.bin', import.meta.url)),
+  readFile(new URL('../src/data/moon_spole_relief.json', import.meta.url), 'utf8').then(JSON.parse),
+  readFile(new URL('../src/data/terrain.json', import.meta.url), 'utf8').then(JSON.parse),
 ]);
 const zones = createZones(inflateSync(zoneBytes), zoneMeta);
-function calendarFixture({ unknown = false, mission = undefined, width = 1280 } = {}) {
+const catalogData = { sites, candidates, moonPolarMeta, moonPolarUrl: 'fixture-moon-relief.jpg', radiusKm: terrainMeta.radius_m / 1000 };
+const pool = candidatePool(catalogData);
+const yearCount = sites.stats_years[1] - sites.stats_years[0] + 1;
+function calendarFixture({ unknown = false, missingOutage = false, mission = undefined, width = 1280 } = {}) {
   const doc = new Document(width), root = doc.createElement('section'), header = doc.createElement('header');
   const back = doc.createElement('button'), preInert = doc.createElement('aside'); preInert.inert = true;
   header.append(back); root.append(header, preInert); root.hidden = true; doc.body.append(root);
-  const data = structuredClone({ sites, candidates });
+  const data = structuredClone(catalogData);
   if (unknown) delete data.sites.sites[0].stats_by_year['2026'];
+  if (missingOutage) delete data.candidates.candidates[0].stats_by_year['2026'].longest_blind_h;
   const epoch = Date.parse('2026-01-01T00:00:00Z');
   const config = mission === undefined ? Object.freeze({
     arriveH: (Date.parse('2028-07-01T00:00:00Z') - epoch) / 3600e3, stayH: 168,
-    needs: Object.freeze({ maxDarkH: 216 }),
+    needs: Object.freeze({ maxDarkH: 318 }),
   }) : mission;
   const previousObserver = globalThis.MutationObserver; globalThis.MutationObserver = AttributeObserver;
   const api = createAnnualCalendar({ root, data, zones,
     eph: { hoursToDate: h => new Date(epoch + h * 3600e3) }, getMission: () => config, getYear: () => 2035 });
-  return { doc, root, back, header, preInert, api, config,
+  return { doc, root, back, header, preInert, api, config, data,
     async reveal() { root.hidden = false; root.classList.remove('out'); back.focus(); await flushAttributes(); },
     cleanup() { api.destroy(); globalThis.MutationObserver = previousObserver; },
   };
 }
 
-test('first selection-screen reveal defaults to all 285 annual cells without timers or a second render loop', async () => {
+function planFor(f, fromYear = 2028) {
+  return buildAnnualPlan({ data: f.data, zones, needs: f.config?.needs || {}, fromYear });
+}
+function chooseSite(f, id) {
+  const select = f.root.querySelector('.ac-site-select'); select.value = id; select.dispatch('change');
+}
+function yearButton(f, year) { return f.root.querySelector(`[data-ac-year="${year}"]`); }
+function assertSelection(f, id, year) {
+  assert.equal(f.root.querySelector('.ac-site-select').value, id);
+  assert.equal(f.root.querySelector('.ac-detail-year').textContent, String(year));
+  const selectedYears = f.root.querySelectorAll('.ac-year-button').filter(button => button.getAttribute('aria-pressed') === 'true');
+  assert.equal(selectedYears.length, 1); assert.equal(selectedYears[0].dataset.acYear, String(year));
+  assert.equal(f.root.querySelectorAll('.ac-year-button').filter(button => button.tabIndex === 0).length, 1);
+  const selectedMarks = f.root.querySelectorAll('.am-marker').filter(mark => mark.getAttribute('aria-pressed') === 'true');
+  assert.equal(selectedMarks.length, 1); assert.equal(selectedMarks[0].dataset.siteId, id);
+  for (const mark of f.root.querySelectorAll('.am-marker')) assert.match(mark.getAttribute('aria-label'), new RegExp(String(year)));
+  const selectedCells = f.root.querySelectorAll('.ac-cell').filter(button => button.getAttribute('aria-pressed') === 'true');
+  assert.equal(selectedCells.length, 1);
+  assert.equal(selectedCells[0].dataset.acRow, String(pool.findIndex(site => site.id === id)));
+  assert.equal(selectedCells[0].dataset.acCol, String(year - sites.stats_years[0]));
+}
+
+test('first reveal presents the recommended site on a real map and one timeline while dense evidence stays collapsed', async () => {
   assert.doesNotMatch(calendarSource, /\b(?:setInterval|setTimeout|requestAnimationFrame)\s*\(/);
+  assert.doesNotMatch(calendarSource, /window\.__lln|mission\.(?:ready|onMission)\s*\(/);
   const f = calendarFixture();
   try {
-    await f.reveal();
+    await f.reveal(); const expected = planFor(f).recommendation;
+    assert.ok(expected);
     assert.equal(f.root.querySelector('.ac-panel').hidden, false);
-    assert.equal(f.root.querySelectorAll('.ac-cell').length, 285);
-    assert.equal(f.root.querySelector('.ac-year').children.length, 15);
-    assert.equal(f.root.querySelector('.ac-year').value, '2028', 'saved arrival year takes precedence over current clock year');
-    assert.equal(f.root.querySelectorAll('.ac-cell').filter(cell => cell.tabIndex === 0).length, 1);
+    assert.equal(f.root.querySelectorAll('.am-marker').length, pool.length);
+    assert.equal(f.root.querySelector('.am-image').src, f.data.moonPolarUrl);
+    assert.equal(f.root.querySelector('.ac-site-select').children.length, pool.length);
+    assert.equal(f.root.querySelectorAll('.ac-year-button').length, yearCount);
+    assert.equal(f.root.querySelector('.ac-comparison').open, false);
+    assert.equal(f.root.querySelector('.ac-evidence').open, false);
+    assert.equal(f.root.querySelectorAll('.ac-cell').length, pool.length * yearCount);
+    assert.match(f.root.querySelector('.ac-comparison').querySelector('summary').textContent, new RegExp(String(pool.length)));
+    assert.equal(f.root.querySelector('.ac-year').children.length, yearCount);
+    assert.equal(f.root.querySelector('.ac-year').value, '2028', 'arrival year takes precedence over the running clock');
+    assert.equal(f.root.querySelector('.ac-recommend-year').textContent, String(expected.year));
+    assertSelection(f, expected.site.id, expected.year);
     assert.equal(f.header.inert, true); assert.equal(f.preInert.inert, true);
-    assert.equal(f.doc.activeElement, f.root.querySelector('.ac-year'));
-    assert.match(f.root.querySelector('.ac-method').textContent, /approximate 8,766-hour/);
+    assert.strictEqual(f.doc.activeElement, f.root.querySelector('.ac-year'));
   } finally { f.cleanup(); }
 });
 
-test('planning year and inspection stay local and do not alter the mission or map selection', async () => {
+test('map, site selector, timeline and full comparison inspect the same actual site-year record', async () => {
   const f = calendarFixture();
   try {
-    await f.reveal(); const before = JSON.stringify(f.config), originalHostNodes = [f.header, f.preInert];
-    const year = f.root.querySelector('.ac-year'); year.value = '2040'; year.dispatch('change');
-    assert.equal(year.value, '2040'); assert.equal(JSON.stringify(f.config), before);
-    assert.match(f.root.querySelector('.ac-recommendation').textContent, /2040/);
-    assert.ok(originalHostNodes.every(node => f.root.children.includes(node)));
-    assert.equal(f.root.querySelectorAll('.ac-cell').length, 285, 'refresh replaces rather than duplicates the matrix');
-    f.root.querySelector('.ac-cell').click();
+    await f.reveal(); const plan = planFor(f), before = JSON.stringify(f.config), firstYear = plan.years[0];
+    const site = pool.find(item => item.id !== plan.recommendation.site.id);
+    f.root.querySelector(`[data-site-id="${site.id}"]`).click();
+    assertSelection(f, site.id, plan.recommendation.year);
+    yearButton(f, firstYear).click(); assertSelection(f, site.id, firstYear);
+    for (const cell of plan.yearSummaries[0].cells) {
+      const mark = f.root.querySelector(`[data-site-id="${cell.site.id}"]`);
+      assert.equal(mark.classList.contains(`am-${cell.status}`), true, `${cell.site.id} uses the displayed year's result`);
+    }
+    chooseSite(f, pool.at(-1).id); assertSelection(f, pool.at(-1).id, firstYear);
+    const comparison = f.root.querySelector('.ac-comparison'); comparison.open = true;
+    const last = f.root.querySelectorAll('.ac-cell').at(-1); last.click();
+    assertSelection(f, pool.at(-1).id, plan.years.at(-1));
+    assert.equal(comparison.open, false);
+    assert.strictEqual(f.doc.activeElement, f.root.querySelector('.ac-site-select'));
+    assert.equal(f.root.querySelector('.ac-detail').scrollCalls.at(-1).block, 'nearest');
+    assert.equal(f.root.querySelector('.ac-year').value, '2028', 'inspection is separate from the recommendation starting year');
     assert.equal(JSON.stringify(f.config), before);
   } finally { f.cleanup(); }
 });
 
-test('roving cell keyboard navigation is bounded, focuses the inspected cell, and stays inside the calendar', async () => {
-  const f = calendarFixture(); let hostKeys = 0;
-  f.doc.body.addEventListener('keydown', () => hostKeys++);
+test('changing planning year updates the recommendation locally, preserves inspection and creates no duplicate views', async () => {
+  const f = calendarFixture();
   try {
-    await f.reveal(); const first = f.root.querySelector('.ac-cell'); first.click();
+    await f.reveal(); const before = JSON.stringify(f.config), firstYear = sites.stats_years[0];
+    chooseSite(f, pool[0].id); yearButton(f, firstYear).click();
+    const year = f.root.querySelector('.ac-year'); year.value = String(sites.stats_years[1]); year.dispatch('change');
+    const expected = planFor(f, sites.stats_years[1]).recommendation;
+    assertSelection(f, pool[0].id, firstYear);
+    assert.equal(f.root.querySelector('.ac-recommend-year').textContent, String(expected.year));
+    f.root.querySelector('[data-ac-action="recommendation"]').click();
+    assertSelection(f, expected.site.id, expected.year);
+    assert.equal(JSON.stringify(f.config), before);
+    assert.equal(f.root.querySelectorAll('.am-map').length, 1);
+    assert.equal(f.root.querySelectorAll('.ac-cell').length, pool.length * yearCount);
+    assert.ok(f.root.children.includes(f.header)); assert.ok(f.root.children.includes(f.preInert));
+  } finally { f.cleanup(); }
+});
+
+test('timeline keyboard navigation is bounded and retains focused nodes while updating the map', async () => {
+  const f = calendarFixture(); let hostKeys = 0; f.doc.body.addEventListener('keydown', () => hostKeys++);
+  try {
+    await f.reveal(); const id = f.root.querySelector('.ac-site-select').value;
+    const original = f.root.querySelectorAll('.ac-year-button'), first = original[0]; first.focus();
+    const right = first.dispatch('keydown', { key: 'ArrowRight' });
+    assert.equal(right.defaultPrevented, true); assert.equal(hostKeys, 0);
+    assert.strictEqual(f.doc.activeElement, original[1]); assertSelection(f, id, sites.stats_years[0] + 1);
+    original[1].dispatch('keydown', { key: 'End' }); assert.strictEqual(f.doc.activeElement, original.at(-1));
+    original.at(-1).dispatch('keydown', { key: 'ArrowRight' }); assert.strictEqual(f.doc.activeElement, original.at(-1));
+    assertSelection(f, id, sites.stats_years[1]);
+    original.at(-1).dispatch('keydown', { key: 'Home' }); assert.strictEqual(f.doc.activeElement, original[0]);
+    original[0].dispatch('keydown', { key: 'ArrowLeft' }); assert.strictEqual(f.doc.activeElement, original[0]);
+    assertSelection(f, id, sites.stats_years[0]); assert.equal(hostKeys, 0);
+    assert.equal(f.root.querySelector('.ac-detail').scrollCalls?.length ?? 0, 0);
+  } finally { f.cleanup(); }
+});
+
+test('the optional comparison retains bounded two-dimensional keyboard navigation using metadata dimensions', async () => {
+  const f = calendarFixture(); let hostKeys = 0; f.doc.body.addEventListener('keydown', () => hostKeys++);
+  try {
+    await f.reveal(); f.root.querySelector('.ac-comparison').open = true;
+    const first = f.root.querySelector('.ac-cell'); first.focus();
     const right = first.dispatch('keydown', { key: 'ArrowRight' });
     assert.equal(right.defaultPrevented, true); assert.equal(hostKeys, 0);
     assert.equal(f.doc.activeElement.dataset.acRow, '0'); assert.equal(f.doc.activeElement.dataset.acCol, '1');
-    assert.equal(f.doc.activeElement.scrolled, true);
     f.doc.activeElement.dispatch('keydown', { key: 'End', ctrlKey: true });
-    assert.equal(f.doc.activeElement.dataset.acRow, '18'); assert.equal(f.doc.activeElement.dataset.acCol, '14');
+    assert.equal(f.doc.activeElement.dataset.acRow, String(pool.length - 1));
+    assert.equal(f.doc.activeElement.dataset.acCol, String(yearCount - 1));
     f.doc.activeElement.dispatch('keydown', { key: 'ArrowDown' });
-    assert.equal(f.doc.activeElement.dataset.acRow, '18');
+    assertSelection(f, pool.at(-1).id, sites.stats_years[1]);
     assert.equal(f.root.querySelectorAll('.ac-cell').filter(cell => cell.tabIndex === 0).length, 1);
+    assert.equal(f.root.querySelector('.ac-comparison').open, true, 'arrows inspect without leaving the expanded matrix');
+    assert.equal(f.root.querySelector('.ac-detail').scrollCalls?.length ?? 0, 0);
+    f.doc.activeElement.press('Enter');
+    assert.equal(f.root.querySelector('.ac-comparison').open, false, 'native Enter activation returns to the selected result');
+    assert.strictEqual(f.doc.activeElement, f.root.querySelector('.ac-site-select'));
     assert.equal(hostKeys, 0);
   } finally { f.cleanup(); }
 });
 
-test('Escape restores map focus and inert state without triggering the host Escape handler', async () => {
+test('Escape closes expanded evidence first, then restores the 3D survey without triggering host Escape', async () => {
   const f = calendarFixture(); let hostEscapes = 0;
   f.doc.body.addEventListener('keydown', event => { if (event.key === 'Escape') hostEscapes++; });
   try {
     await f.reveal();
-    const event = f.doc.activeElement.dispatch('keydown', { key: 'Escape' });
-    assert.equal(event.defaultPrevented, true); assert.equal(hostEscapes, 0);
+    const evidence = f.root.querySelector('.ac-evidence'), comparison = f.root.querySelector('.ac-comparison');
+    evidence.open = true; comparison.open = true; evidence.querySelector('summary').focus();
+    const first = f.doc.activeElement.dispatch('keydown', { key: 'Escape' });
+    assert.equal(first.defaultPrevented, true); assert.equal(hostEscapes, 0);
+    assert.equal(evidence.open, false); assert.equal(comparison.open, false);
+    assert.equal(f.root.querySelector('.ac-panel').hidden, false);
+    assert.strictEqual(f.doc.activeElement, evidence.querySelector('summary'));
+    f.doc.activeElement.dispatch('keydown', { key: 'Escape' });
     assert.equal(f.root.querySelector('.ac-panel').hidden, true);
     assert.equal(f.header.inert, false); assert.equal(f.preInert.inert, true);
-    assert.strictEqual(f.doc.activeElement, f.back);
-    assert.equal(f.root.hidden, false, 'Escape must not leave the native selection screen');
+    assert.strictEqual(f.doc.activeElement, f.back); assert.equal(hostEscapes, 0);
+    assert.equal(f.root.hidden, false);
   } finally { f.cleanup(); }
 });
 
-test('automatic calendar opening never restores focus to a previous screen outside the selection root', async () => {
+test('automatic planner opening never restores focus to a previous screen outside the selection root', async () => {
   const f = calendarFixture();
   try {
-    const previousScreenButton = f.doc.createElement('button');
-    f.doc.body.append(previousScreenButton); previousScreenButton.focus();
-    f.root.hidden = false; await flushAttributes();
-    assert.strictEqual(f.doc.activeElement, f.root.querySelector('.ac-year'));
-    previousScreenButton.hidden = true;
+    const previousScreenButton = f.doc.createElement('button'); f.doc.body.append(previousScreenButton); previousScreenButton.focus();
+    f.root.hidden = false; await flushAttributes(); previousScreenButton.hidden = true;
     f.doc.activeElement.dispatch('keydown', { key: 'Escape' });
     assert.strictEqual(f.doc.activeElement, f.root.querySelector('[data-ac-view="calendar"]'));
     assert.notStrictEqual(f.doc.activeElement, previousScreenButton);
   } finally { f.cleanup(); }
 });
 
-test('reopening the host cannot restore Map focus into the now-hidden calendar panel', async () => {
+test('reopening the host cannot restore survey focus into the now-hidden planner panel', async () => {
   const f = calendarFixture();
   try {
-    await f.reveal();
-    const previousCalendarFocus = f.root.querySelector('.ac-year');
-    assert.strictEqual(f.doc.activeElement, previousCalendarFocus);
-    f.root.hidden = true; await flushAttributes();
-    f.root.hidden = false; await flushAttributes();
-    assert.equal(f.root.querySelector('.ac-panel').hidden, false);
+    await f.reveal(); const previous = f.root.querySelector('.ac-year');
+    f.root.hidden = true; await flushAttributes(); f.root.hidden = false; await flushAttributes();
     f.root.querySelector('[data-ac-view="map"]').click();
     assert.equal(f.root.querySelector('.ac-panel').hidden, true);
     assert.strictEqual(f.doc.activeElement, f.root.querySelector('[data-ac-view="calendar"]'));
-    assert.notStrictEqual(f.doc.activeElement, previousCalendarFocus);
+    assert.notStrictEqual(f.doc.activeElement, previous);
   } finally { f.cleanup(); }
 });
 
-test('Map/Calendar preference survives conceal/reveal and host hiding releases inert state', async () => {
+test('view preference survives conceal/reveal and reopening resets disclosure, scroll and inspection state', async () => {
   const f = calendarFixture();
   try {
     await f.reveal(); f.root.querySelector('[data-ac-view="map"]').click();
-    f.root.classList.add('out'); await flushAttributes();
-    await f.reveal(); assert.equal(f.root.querySelector('.ac-panel').hidden, true, 'remember explicit Map preference');
+    f.root.classList.add('out'); await flushAttributes(); await f.reveal();
+    assert.equal(f.root.querySelector('.ac-panel').hidden, true, 'remember explicit survey preference');
     f.root.querySelector('[data-ac-view="calendar"]').click();
-    assert.equal(f.root.querySelector('.ac-panel').hidden, false);
+    f.root.querySelector('.ac-comparison').open = true;
+    f.root.querySelector('.ac-panel').scrollTop = 500; f.root.querySelector('.ac-timeline').scrollLeft = 100;
+    chooseSite(f, pool[0].id); yearButton(f, sites.stats_years[0]).click();
     f.root.hidden = true; await flushAttributes();
     assert.equal(f.header.inert, false); assert.equal(f.preInert.inert, true);
-    await f.reveal(); assert.equal(f.root.querySelector('.ac-panel').hidden, false, 'restore Calendar preference');
-    assert.equal(f.root.querySelectorAll('.ac-cell').length, 285);
+    await f.reveal(); const expected = planFor(f).recommendation;
+    assert.equal(f.root.querySelector('.ac-panel').hidden, false);
+    assert.equal(f.root.querySelector('.ac-comparison').open, false);
+    assert.equal(f.root.querySelector('.ac-panel').scrollTop, 0);
+    assert.equal(f.root.querySelector('.ac-timeline').scrollLeft, 0);
+    assertSelection(f, expected.site.id, expected.year);
   } finally { f.cleanup(); }
 });
 
-test('missing annual evidence is unknown rather than passing and absent outage figures stay unknown', async () => {
-  const f = calendarFixture({ unknown: true });
+test('missing annual evidence stays unknown on map, timeline and details; an absent optional outage is not invented', async () => {
+  const f = calendarFixture({ unknown: true, missingOutage: true });
   try {
-    await f.reveal(); const first = f.root.querySelector('.ac-cell');
-    assert.equal(first.classList.contains('ac-unknown'), true);
-    assert.match(first.getAttribute('aria-label'), /Unknown/); first.click();
+    await f.reveal(); chooseSite(f, pool[0].id); yearButton(f, 2026).click();
+    assert.equal(f.root.querySelector('.ac-verdict').classList.contains('ac-unknown'), true);
+    assert.equal(yearButton(f, 2026).classList.contains('ac-unknown'), true);
+    assert.equal(f.root.querySelector(`[data-site-id="${pool[0].id}"]`).classList.contains('am-unknown'), true);
     assert.doesNotMatch(f.root.querySelector('.ac-detail').textContent, /PASS/);
-    assert.match(f.root.querySelector('.ac-detail').textContent, /missing/);
-    const generated = f.root.querySelectorAll('.ac-cell').find(cell => cell.dataset.acRow === '4' && cell.dataset.acCol === '0');
-    generated.click();
+    assert.match(f.root.querySelector('.ac-selection-note').textContent, /missing/);
+    chooseSite(f, candidates.candidates[0].id);
     const outage = f.root.querySelector('.ac-stats').children.find(row => row.children[0].textContent === 'Longest link outage');
     assert.equal(outage.children[1].textContent, 'Unknown');
   } finally { f.cleanup(); }
 });
 
-test('destroy removes only calendar-owned DOM/listeners and restores original host inert values', async () => {
-  const f = calendarFixture(); let escaped = 0;
-  f.doc.body.addEventListener('keydown', () => escaped++);
+test('a real no-fit scenario has no recommendation action and does not highlight a failing site as recommended', async () => {
+  const f = calendarFixture({ mission: { arriveH: 0, stayH: 168, needs: { maxDarkH: 1 } } });
+  try {
+    await f.reveal(); assert.equal(planFor(f, 2026).recommendation, null);
+    assert.equal(f.root.querySelector('[data-ac-action="recommendation"]'), null);
+    assert.match(f.root.querySelector('.ac-recommend-name').textContent, /No confirmed annual fit/);
+    assert.equal(f.root.querySelectorAll('.am-recommended').length, 0);
+    assert.equal(f.root.querySelector('.ac-verdict').classList.contains('ac-infeasible'), true);
+  } finally { f.cleanup(); }
+});
+
+for (const width of [390, 720, 1280]) {
+  test(`selection at ${width}px keeps map controls focused and explicit inspection reveals the chosen result`, async () => {
+    const f = calendarFixture({ width });
+    try {
+      await f.reveal(); const marker = f.root.querySelector('.am-marker'); marker.click();
+      assert.strictEqual(f.doc.activeElement, marker);
+      const year = yearButton(f, sites.stats_years[0]); year.click(); assert.strictEqual(f.doc.activeElement, year);
+      const site = f.root.querySelector('.ac-site-select'); site.focus(); chooseSite(f, pool.at(-1).id);
+      assert.strictEqual(f.doc.activeElement, site);
+      assert.equal(f.root.querySelector('.ac-detail').scrollCalls?.length ?? 0, 0);
+      const inspect = f.root.querySelector('[data-ac-action="recommendation"]'); inspect.click();
+      assert.strictEqual(f.doc.activeElement, inspect);
+      assert.equal(f.root.querySelector('.ac-workspace').scrollCalls.at(-1).block, 'nearest');
+      assert.equal(f.root.querySelector('.ac-detail').scrollCalls?.length ?? 0, 0);
+      assert.equal(f.root.querySelector('.ac-comparison').open, false);
+      const comparison = f.root.querySelector('.ac-comparison'); comparison.open = true;
+      f.root.querySelector('.ac-cell').click();
+      assert.equal(comparison.open, false);
+      assert.strictEqual(f.doc.activeElement, site);
+      assert.equal(f.root.querySelector('.ac-detail').scrollCalls.at(-1).block, 'nearest');
+    } finally { f.cleanup(); }
+  });
+}
+
+test('destroy removes only planner-owned DOM and listeners and restores original inert values', async () => {
+  const f = calendarFixture(); let escaped = 0; f.doc.body.addEventListener('keydown', () => escaped++);
   try {
     await f.reveal(); f.api.destroy();
     assert.deepEqual(f.root.children, [f.header, f.preInert]);
     assert.equal(f.header.inert, false); assert.equal(f.preInert.inert, true);
-    assert.equal(f.root.classList.contains('ac-calendar-open'), false);
-    assert.equal(f.api.show(), false);
+    assert.equal(f.root.classList.contains('ac-calendar-open'), false); assert.equal(f.api.show(), false);
     f.back.dispatch('keydown', { key: 'Escape' }); assert.equal(escaped, 1);
     f.root.hidden = true; await flushAttributes(); await f.reveal();
     assert.deepEqual(f.root.children, [f.header, f.preInert]);
   } finally { f.cleanup(); }
 });
-
-for (const { width, unknown } of [{ width: 390, unknown: false }, { width: 720, unknown: true }]) {
-  test(`mobile cell inspection at ${width}px reveals details and returns to the same cell${unknown ? ' with unknown data' : ''}`, async () => {
-    const f = calendarFixture({ width, unknown });
-    try {
-      await f.reveal();
-      const before = JSON.stringify(f.config), cell = f.root.querySelector('.ac-cell');
-      const detail = f.root.querySelector('.ac-detail');
-      assert.equal(detail.tabIndex, -1, 'detail is programmatically focusable without adding a tab stop');
-      cell.click();
-      assert.strictEqual(f.doc.activeElement, detail);
-      assert.deepEqual(detail.scrollCalls.at(-1), { block: 'start', inline: 'nearest', behavior: 'instant' });
-      assert.equal(cell.getAttribute('aria-pressed'), 'true');
-      assert.equal(cell.tabIndex, 0);
-      const detailScrolls = detail.scrollCalls.length;
-      const back = detail.querySelector('.ac-back-to-calendar');
-      assert.ok(back, 'known and unknown details both provide the mobile return control');
-      back.click();
-      assert.strictEqual(f.doc.activeElement, cell);
-      assert.deepEqual(cell.scrollCalls.at(-1), { block: 'nearest', inline: 'nearest', behavior: 'instant' });
-      assert.equal(detail.scrollCalls.length, detailScrolls, 'returning to the matrix must not reopen detail focus');
-      assert.equal(JSON.stringify(f.config), before);
-    } finally { f.cleanup(); }
-  });
-}
-
-test('mobile recommendation inspection reveals its detail while arrow-key navigation stays in the matrix', async () => {
-  const f = calendarFixture({ width: 390 });
-  try {
-    await f.reveal(); const detail = f.root.querySelector('.ac-detail');
-    const first = f.root.querySelector('.ac-cell'); first.focus();
-    first.dispatch('keydown', { key: 'ArrowRight' });
-    assert.equal(f.doc.activeElement.classList.contains('ac-cell'), true);
-    assert.equal(f.doc.activeElement.dataset.acCol, '1');
-    assert.equal(detail.scrollCalls?.length ?? 0, 0, 'keyboard movement must not jump to the lower detail section');
-    f.root.querySelector('.ac-recommendation').querySelector('.ac-inspect').click();
-    assert.strictEqual(f.doc.activeElement, detail);
-    assert.equal(detail.scrollCalls.at(-1).block, 'start');
-    const selected = f.root.querySelectorAll('.ac-cell').find(cell => cell.getAttribute('aria-pressed') === 'true');
-    detail.querySelector('.ac-back-to-calendar').click();
-    assert.strictEqual(f.doc.activeElement, selected);
-    const count = detail.scrollCalls.length;
-    selected.dispatch('keydown', { key: 'ArrowDown' });
-    assert.equal(f.doc.activeElement.classList.contains('ac-cell'), true);
-    assert.equal(detail.scrollCalls.length, count);
-  } finally { f.cleanup(); }
-});
-
-for (const width of [721, 1280]) {
-  test(`desktop inspection at ${width}px keeps matrix focus without scrolling to details`, async () => {
-    const f = calendarFixture({ width });
-    try {
-      await f.reveal(); const detail = f.root.querySelector('.ac-detail'), first = f.root.querySelector('.ac-cell');
-      first.click(); assert.strictEqual(f.doc.activeElement, first);
-      assert.equal(detail.scrollCalls?.length ?? 0, 0);
-      f.root.querySelector('.ac-recommendation').querySelector('.ac-inspect').click();
-      assert.equal(f.doc.activeElement.classList.contains('ac-cell'), true);
-      assert.equal(f.doc.activeElement.getAttribute('aria-pressed'), 'true');
-      assert.equal(detail.scrollCalls?.length ?? 0, 0);
-    } finally { f.cleanup(); }
-  });
-}
