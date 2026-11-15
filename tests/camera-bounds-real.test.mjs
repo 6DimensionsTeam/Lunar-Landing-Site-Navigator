@@ -11,7 +11,7 @@ function createView({ aspect = 16 / 9, site = null, bounded = true } = {}) {
   const camera = new PerspectiveCamera(40, aspect, .05, 4000);
   const document = new EventTarget();
   const element = Object.assign(new EventTarget(), {
-    style: {}, ownerDocument: document, getRootNode: () => document,
+    style: {}, clientWidth: 1280, clientHeight: 720, ownerDocument: document, getRootNode: () => document,
   });
   const controls = new OrbitControls(camera, element);
   Object.assign(controls, {
@@ -37,8 +37,8 @@ function assertSafe(view, label) {
   const cameraMap = sceneToMap(terrain.R, camera.position);
   assert.ok(camera.position.toArray().every(Number.isFinite), `${label}: finite camera`);
   assert.ok(controls.target.toArray().every(Number.isFinite), `${label}: finite target`);
-  assert.ok(camera.position.distanceTo(controls.target) <= controls.maxDistance + 1e-6, `${label}: zoom maximum`);
-  assert.ok(camera.position.distanceTo(controls.target) >= controls.minDistance - 1e-6, `${label}: zoom minimum`);
+  assert.ok(camera.position.distanceTo(controls.target) <= controls.maxDistance + 1e-7, `${label}: zoom maximum`);
+  assert.ok(camera.position.distanceTo(controls.target) >= controls.minDistance - 1e-7, `${label}: zoom minimum`);
   assert.ok(Math.abs(cameraMap.m.x) <= snapshot.innerHalfKm && Math.abs(cameraMap.m.y) <= snapshot.innerHalfKm, `${label}: camera remains over inner coverage`);
   assert.ok(snapshot.targetMapKm.every(n => Math.abs(n) <= snapshot.innerHalfKm), `${label}: target remains in coverage`);
   assert.ok(cameraMap.h <= snapshot.horizonLimitKm + 1e-6, `${label}: horizon stays inside measured outer coverage`);
@@ -137,4 +137,36 @@ test('inactive flight, home or globe ownership delegates controls without terrai
     assert.ok(view.camera.position.distanceTo(reference.camera.position) < 1e-10);
     assert.ok(view.controls.target.distanceTo(reference.controls.target) < 1e-10);
   } finally { view.dispose(); reference.dispose(); }
+});
+
+test('browser regression: extreme public pan, dolly, rotate and damping converge within 0.1 mm', t => {
+  const view = createView({ site: terrain.sites.find(site => site.id === 'A') });
+  const { controls, camera } = view;
+  const directions = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, 1], [1, -1], [-1, -1]];
+  let samples = 0, maximumOvershootKm = 0;
+  const check = label => {
+    const overshoot = camera.position.distanceTo(controls.target) - controls.maxDistance;
+    samples++; maximumOvershootKm = Math.max(maximumOvershootKm, overshoot);
+    assert.ok(overshoot <= 1e-7, `${label}: distance overshoot ${overshoot} km`);
+    assertSafe(view, label);
+  };
+  const settle = label => { for (let frame = 0; frame < 3; frame++) { controls.update(); check(`${label}, damping ${frame + 1}`); } };
+  try {
+    for (let i = 0; i < 5; i++) controls.update();
+    controls.saveState();
+    for (let azimuth = 0; azimuth < 4; azimuth++) {
+      controls.reset(); controls.rotateLeft(azimuth * Math.PI / 2); check(`azimuth ${azimuth}`);
+      for (const [x, y] of directions) {
+        const label = `azimuth ${azimuth}, pan ${x},${y}`;
+        for (let repeat = 0; repeat < 3; repeat++) { controls.pan(x * 100000, y * 100000); check(`${label}, step ${repeat + 1}`); }
+        settle(label);
+      }
+      controls.dollyIn(.00001); check('extreme zoom in'); settle('zoom in');
+      controls.dollyOut(.00001); check('extreme zoom out'); settle('zoom out');
+      controls.rotateUp(Math.PI * 4); check('rotate above'); settle('rotate above');
+      controls.rotateUp(-Math.PI * 8); check('rotate below'); settle('rotate below');
+    }
+    controls.dollyOut(.00001); settle('final boundary');
+    t.diagnostic(JSON.stringify({ samples, maximumOvershootKm, toleranceKm: 1e-7 }));
+  } finally { view.dispose(); }
 });

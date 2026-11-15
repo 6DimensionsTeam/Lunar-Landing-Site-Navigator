@@ -58,7 +58,9 @@ export function installCameraBounds({ camera, controls, tiles, radiusKm, heightA
       const centreMax = Math.max(minDistance, Math.min(userMax, innerHalf / footprintGain));
       const panChanged = !cached || !controls.target.equals(cachedTarget);
       let selectedTile = 'inner', maxDistance = centreMax, clearance = 0, horizonLimit = Infinity;
-      for (let pass = 0; pass < 4; pass++) {
+      // A terrain lift and an edge pan constrain one another. Ordinary movement exits
+      // after one pass; extreme damped pans need extra refinement at the corner.
+      for (let pass = 0; pass < 12; pass++) {
         const targetH = sceneToMap(radiusKm, controls.target, targetMap).h;
         let distance = offset.copy(camera.position).sub(controls.target).length();
         if (distance < 1e-10) offset.set(0, 1, 0);
@@ -109,7 +111,7 @@ export function installCameraBounds({ camera, controls, tiles, radiusKm, heightA
         }
         clearance = sceneToMap(radiusKm, camera.position, cameraMap).h - sample(cameraMap);
         const actualDistance = camera.position.distanceTo(controls.target);
-        if (deficit <= 1e-9 && actualDistance <= maxDistance + 1e-7 && cameraH <= horizonLimit + 1e-7) break;
+        if (deficit <= 1e-9 && actualDistance <= maxDistance + 1e-9 && cameraH <= horizonLimit + 1e-9) break;
       }
       // Refresh the available zoom radius after a terrain-driven lift or pan correction.
       sceneToMap(radiusKm, controls.target, targetMap);
