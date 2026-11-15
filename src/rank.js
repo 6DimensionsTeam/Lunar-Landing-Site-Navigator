@@ -94,7 +94,7 @@ function evaluate(site, zones, year, needs) {
     fails.push(`Earth link ${comms.toFixed(1)}%, below the ${commNeeded}% needed for continuous contact`);
   }
   if (Number.isFinite(needs.maxDarkH) && needs.maxDarkH > 0 && st.longest_dark_h > needs.maxDarkH) {
-    fails.push(`Longest dark ${st.longest_dark_h} h, beyond the ${needs.maxDarkH} h the mission allows`);
+    fails.push(`Longest night ${st.longest_dark_h} h, beyond the ${needs.maxDarkH} h the mission allows`);
   }
   if (needs.craterFloor) {
     if (!ground) fails.push('No ground classification at this point, so a crater floor cannot be confirmed');
@@ -123,7 +123,7 @@ function evaluate(site, zones, year, needs) {
     verdicts.push({ key: 'comms', label: 'Earth link', pass: comms >= commNeeded, value: `${comms.toFixed(1)}%` });
   }
   if (Number.isFinite(needs.maxDarkH) && needs.maxDarkH > 0) {
-    verdicts.push({ key: 'dark', label: 'Dark limit', pass: st.longest_dark_h <= needs.maxDarkH, value: `${st.longest_dark_h} h worst` });
+    verdicts.push({ key: 'dark', label: 'Longest night', pass: st.longest_dark_h <= needs.maxDarkH, value: `${st.longest_dark_h} h worst` });
   }
   if (needs.craterFloor) verdicts.push({ key: 'crater', label: 'Crater floor', pass: !!ground && ground.zone !== 'rough', value: ground ? ground.zone : 'unmapped' });
   if (needs.iceNearby) verdicts.push({ key: 'ice', label: 'Ice nearby', pass: !!ground && ground.iceDistKm <= ICE_NEAR_KM, value: ground ? `${ground.iceDistKm.toFixed(0)} km` : '—' });
@@ -172,7 +172,7 @@ export function compareSites(entries) {
   const columns = [
     { key: 'sun', label: 'Sunlight', better: 'high' },
     { key: 'comms', label: 'Earth link', graded: askedComms, better: 'high' },
-    { key: 'dark', label: 'Longest dark', graded: askedDark, better: 'low' },
+    { key: 'dark', label: 'Longest night', graded: askedDark, better: 'low' },
     { key: 'ground', label: 'Ground', graded: askedCrater },
     { key: 'ice', label: 'Ice nearby', graded: askedIce, better: 'low' },
     { key: 'overall', label: 'Meets mission', graded: true },

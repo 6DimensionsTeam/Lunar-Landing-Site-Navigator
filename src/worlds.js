@@ -176,7 +176,7 @@ export function runWorlds(pool, zones, worlds) {
 // counted. The messages themselves carry the measured figure and stay intact for display.
 function reasonKey(message) {
   if (/Earth link/.test(message)) return 'Earth link';
-  if (/Longest dark/.test(message)) return 'Night length';
+  if (/Longest night/.test(message)) return 'Night length';
   if (/crater floor|too steep/.test(message)) return 'Crater floor';
   if (/shadow|ice/.test(message)) return 'Ice distance';
   return 'Other';

@@ -543,6 +543,13 @@ async function boot() {
       // so the two cannot share a label even in principle.
       hud.bind('ex-src', `${src}. Percentages are means over ${sel.year ? sel.year : `${eph.startYear}–${eph.endYear}`}; `
         + `longest night and blackout are the worst continuous run in ${eph.startYear}–${eph.endYear}. LOLA horizon × DE421.`);
+      // The tense labels on the three percentage rows. They read "NOW" against a mean, so the
+      // mean has to carry the period it is over -- and that period is a single year whenever
+      // the site was chosen from a year's figures, not the whole record.
+      const meanSpan = sel.year ? `${sel.year} MEAN` : `${eph.startYear}–${eph.endYear} MEAN`;
+      hud.bind('ex-t-sun', meanSpan);
+      hud.bind('ex-t-earth', meanSpan);
+      hud.bind('ex-t-both', meanSpan);
       hud.pill('ex-verdict', !!sel.entry?.meetsAll, sel.entry ? (sel.entry.meetsAll ? 'MEETS' : 'FAILS') : '—');
       hud.bind('ex-sunpct', pct(st.sun_visible_pct));
       hud.bind('ex-earthpct', pct(st.earth_visible_pct));
@@ -884,7 +891,13 @@ async function boot() {
   // Back out of the surface the way the user came in. Arriving by descending from the site map
   // makes going "home" a dead end -- the mission flow skips that screen entirely, so it would
   // leave them on a screen with nothing to click that continues the mission.
-  const backFromSurface = () => { if (cameFromMap) returnToMap(); else go('home'); };
+  // The arrival screens are P2's and are not in the home/explore/orbit set go() swaps, so any
+  // hand-off between this module's views has to take them down explicitly or they draw through.
+  const clearArrivalScreens = () => { for (const id of ['mission', 'home']) hud.hideScreen(id); };
+  const backFromSurface = () => {
+    if (cameFromMap) returnToMap();
+    else { clearArrivalScreens(); go('home'); }
+  };
   // Entering the surface outside the map flow (Enter Navigation, Descend to Site A) still lands
   // at Shackleton Rim, because that is where rig.landing() puts the camera with no site given.
   // Without this the readout sat on placeholder dashes and the header named a site the view was
@@ -897,6 +910,11 @@ async function boot() {
       if (!chosenSiteRef()) surfaceHud.set({ site: t, entry: defaultEntryFor(t), year: null, needs: {} });
       placeRover(t);
     }
+    // The arrival screens belong to P2 and are not part of the home/explore/orbit set that go()
+    // swaps between, so nothing else takes them down. Left showing, their panels draw straight
+    // through the surface readout: the visitor saw "When do you want to reach the Moon?" and the
+    // landing-site panel stacked on top of each other.
+    clearArrivalScreens();
     go('explore');
   };
   hud.onEnter(enterSurface);
@@ -1380,7 +1398,7 @@ async function boot() {
         if (s.source === 'data') row.classList.add('found');
         row.querySelector('em').textContent = entry.meetsAll ? 'MEETS' : 'FAILS';
         row.querySelector('.fig').textContent =
-          `${st.sun_visible_pct.toFixed(1)}% sun · ${st.earth_visible_pct.toFixed(1)}% link · ${st.longest_dark_h} h dark`;
+          `${st.sun_visible_pct.toFixed(1)}% sun · ${st.earth_visible_pct.toFixed(1)}% link · ${st.longest_dark_h} h night`;
         // The reason a site was ruled out is the useful part of a failing row, so it is shown
         // rather than hidden behind a tooltip.
         row.querySelector('.why').textContent = explain(entry, missionNeeds);
@@ -1863,7 +1881,7 @@ async function boot() {
       cp('cmp-note').textContent = (asked
         ? 'PASS/FAIL columns are only shown for requirements the mission actually asked for; an unshaded column was never asked. '
         : 'No requirements were set, so every column is a measured figure with no pass or fail. ')
-        + `Sunlight and Earth link are ${year != null ? `${year}'s own` : 'whole-calendar-year'} means; longest dark is ${darkPeriod} `
+        + `Sunlight and Earth link are ${year != null ? `${year}'s own` : 'whole-calendar-year'} means; longest night is ${darkPeriod} `
         + 'worst continuous dark run, measured from LOLA horizon profiles and DE421, not a surface-window calculation. '
         + 'The highlighted row is the site you committed to.';
     }
