@@ -267,6 +267,23 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
       publishAnchors(performance.now(), true);
     });
   }
+  function recenterOrbit() {
+    if (disposed || !presented || stage !== 'orbit' || !space.visible || canvas.hidden || root?.hidden) return Promise.resolve({ stage, cancelled: true });
+    const from = currentPose();
+    if (dive) finishTransition(true);
+    // Restore framing without recomputing the mission or restarting its preview clock.
+    camera.zoom = 1; setVisible(false);
+    const to = orbitPose(), now = performance.now();
+    suspendedAt = canvas.hidden || root?.hidden || document.hidden ? now : null; lastRender = 0;
+    if (reduced) {
+      applyPose(to); transitionStatus('complete', 1); updatePreview(now); publishAnchors(now, true);
+      return Promise.resolve({ stage, cancelled: false });
+    }
+    return new Promise(resolve => {
+      dive = { kind: 'reveal', recenter: true, start: now, duration: 850, from, to, resolve };
+      transitionStatus('arrive', 0); publishAnchors(now, true);
+    });
+  }
   function resize() {
     width = Math.max(1, canvas.clientWidth || innerWidth); height = Math.max(1, canvas.clientHeight || innerHeight);
     renderer.setPixelRatio(Math.max(.65, Math.min(devicePixelRatio || 1, 1.35, Math.sqrt(1150000/(width*height))) * quality));
@@ -277,6 +294,8 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
   function render(now) {
     if (disposed) return; frameId = requestAnimationFrame(render);
     if (canvas.hidden || root?.hidden || document.hidden) {
+      // Leaving this screen cancels its optional reset; background tabs still resume it.
+      if ((canvas.hidden || root?.hidden) && dive?.recenter) finishTransition(true);
       if (suspendedAt == null) suspendedAt = now;
       lastRender = 0;
       if (now - perfStart > 1000) {
@@ -339,7 +358,7 @@ export async function createTransit({ canvas, eph, data, onProgress, onLaunchAnc
   window.addEventListener('resize',resize); document.addEventListener('visibilitychange',visibilityChange);
   const observer=typeof ResizeObserver!=='undefined'?new ResizeObserver(resize):null;observer?.observe(canvas);
   frameId=requestAnimationFrame(render);
-  return {show,updateGeometry,
+  return {show,recenterOrbit,updateGeometry,
     getGeometrySnapshot(){return {displayH,earthPos:[...rawEarth],sunDir:[...rawSun],moonDirection:moonDirection.toArray(),sunDirection:sunDirection.toArray(),moonPosition:moonCenter.toArray(),earthPosition:[0,0,0],earthRotation:earth.quaternion.toArray(),moonRotation:moon.quaternion.toArray(),stage,transitioning:!!dive,cameraPosition:camera.position.toArray(),launchMarkerPosition:launchMarker.position.toArray(),previewProgress:previewState?.progress,trajectoryModel:trajectory?.model,endpointErrorKm:trajectory?.endpointErrorKm};},
     dispose(){if(disposed)return;disposed=true;finishTransition(true);cancelAnimationFrame(frameId);window.removeEventListener('resize',resize);document.removeEventListener('visibilitychange',visibilityChange);observer?.disconnect();onLaunchAnchor?.({x:0,y:0,visible:false});
       onAnchors?.(Object.fromEntries(['earth','moon','launch','injection','midcourse','arrival','vehicle'].map(key=>[key,{x:0,y:0,visible:false}])));

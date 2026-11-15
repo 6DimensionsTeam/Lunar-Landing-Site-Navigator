@@ -21,15 +21,18 @@ function fixture({ tiles = metadata(), heightAt = () => 0, active = true, attach
   const controls = new OrbitControls(camera, element()); controls.minDistance = 2; controls.maxDistance = 220;
   controls.enableDamping = true; controls.dampingFactor = .1; controls.maxPolarAngle = Math.PI * 88 / 180;
   const bounds = attach ? installCameraBounds({ camera, controls, tiles, radiusKm: R, heightAt, isActive: () => state.active }) : null;
-  return { camera, controls, bounds, state, heightAt, cleanup() { bounds?.dispose(); controls.dispose(); } };
+  return { camera, controls, bounds, state, heightAt, tiles, cleanup() { bounds?.dispose(); controls.dispose(); } };
 }
 function safe(f, label = '') {
   const s = f.bounds.getSnapshot(), c = sceneToMap(R, f.camera.position), t = sceneToMap(R, f.controls.target);
   assert.ok(c.h >= f.heightAt(c.m) + .0005 - 1e-8, `${label}: floor ${s.clearanceKm}`);
-  assert.ok(Math.max(Math.abs(c.m.x), Math.abs(c.m.y)) <= s.innerHalfKm + 1e-6, `${label}: camera domain`);
-  assert.ok(Math.max(Math.abs(t.m.x), Math.abs(t.m.y)) <= s.innerHalfKm + 1e-6, `${label}: target domain`);
+  assert.ok(c.m.length() <= s.navigationRadiusKm + 1e-6, `${label}: camera domain`);
+  assert.ok(t.m.length() <= s.navigationRadiusKm + 1e-6, `${label}: target domain`);
   assert.ok(f.camera.position.distanceTo(f.controls.target) <= f.controls.maxDistance + 1e-5, `${label}: distance ${s.distanceKm}/${s.maxDistanceKm}`);
   assert.ok(c.h <= s.horizonLimitKm + 1e-5, `${label}: horizon ${c.h}/${s.horizonLimitKm}`);
+  const surfaceRadius = R + Math.min(...Object.values(f.tiles).map(tile => tile.min_m)) / 1000;
+  const viewAngle = 2 * Math.atan(c.m.length() / (2 * R)) + Math.acos(Math.min(1, surfaceRadius / (R + c.h)));
+  assert.ok(viewAngle <= 2 * Math.atan(s.outerHalfKm / (2 * R)) + 1e-8, `${label}: finite outer coverage`);
 }
 
 test('metadata and field of view determine bounds; no literal terrain extent', () => {

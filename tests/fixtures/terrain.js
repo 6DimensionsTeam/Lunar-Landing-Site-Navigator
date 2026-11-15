@@ -5,15 +5,17 @@ import * as THREE from 'three';
 import { makeHeightSampler, latLonToMap, mapToScene } from '../../src/geo.js';
 import { Ephemeris } from '../../src/ephemeris.js';
 import { createRig } from '../../src/rig.js';
+import { candidatePool } from '../../src/rank.js';
 
 const sourceURL = new URL('../../src/', import.meta.url);
 let loaded;
 export function loadTerrainFixture() {
   return loaded ??= (async () => {
-    const [terrain, metadata, sites, binary, dataSource, mainSource] = await Promise.all([
+    const [terrain, metadata, sites, candidates, binary, dataSource, mainSource] = await Promise.all([
       readFile(new URL('data/terrain.json', sourceURL), 'utf8').then(JSON.parse),
       readFile(new URL('data/ephem.json', sourceURL), 'utf8').then(JSON.parse),
       readFile(new URL('data/sites.json', sourceURL), 'utf8').then(JSON.parse),
+      readFile(new URL('data/candidates.json', sourceURL), 'utf8').then(JSON.parse),
       readFile(new URL('data/ephem.bin', sourceURL)),
       readFile(new URL('data.js', sourceURL), 'utf8'),
       readFile(new URL('main.js', sourceURL), 'utf8'),
@@ -40,7 +42,7 @@ export function loadTerrainFixture() {
     const homeUTC = mainSource.match(/const HOME_EPOCH_UTC = '([^']+)'/)?.[1];
     assert.ok(homeUTC);
     const buffer = new Float32Array(binary.buffer.slice(binary.byteOffset, binary.byteOffset + binary.byteLength));
-    return { tiles, R, heightAt, groundAt, crater, sites: sites.sites,
+    return { tiles, R, heightAt, groundAt, crater, sites: sites.sites, candidatePool: candidatePool({ sites, candidates }),
       createRig(camera) {
         const eph = new Ephemeris(buffer, metadata, R);
         eph.update((Date.parse(homeUTC) - eph.start) / 3600e3);
