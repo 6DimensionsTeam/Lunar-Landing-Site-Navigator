@@ -38,10 +38,19 @@ function assertSafe(view, label) {
   assert.ok(camera.position.toArray().every(Number.isFinite), `${label}: finite camera`);
   assert.ok(controls.target.toArray().every(Number.isFinite), `${label}: finite target`);
   assert.ok(camera.position.distanceTo(controls.target) <= controls.maxDistance + 1e-7, `${label}: zoom maximum`);
-  assert.ok(camera.position.distanceTo(controls.target) >= controls.minDistance - 1e-7, `${label}: zoom minimum`);
-  assert.ok(Math.abs(cameraMap.m.x) <= snapshot.innerHalfKm && Math.abs(cameraMap.m.y) <= snapshot.innerHalfKm, `${label}: camera remains over inner coverage`);
-  assert.ok(snapshot.targetMapKm.every(n => Math.abs(n) <= snapshot.innerHalfKm), `${label}: target remains in coverage`);
+  assert.ok(camera.position.distanceTo(controls.target) >= controls.minDistance - 1e-7, `${label}: zoom minimum ${camera.position.distanceTo(controls.target)}/${controls.minDistance}`);
+  const safeMapRadius = snapshot.navigationRadiusKm - snapshot.nearRadiusKm;
+  assert.ok(cameraMap.m.length() <= safeMapRadius + 1e-7, `${label}: camera remains inside safe radial coverage`);
+  assert.ok(Math.hypot(...snapshot.targetMapKm) <= snapshot.navigationRadiusKm + 1e-7, `${label}: target remains inside safe radial coverage`);
+  assert.ok(Math.hypot(...snapshot.targetMapKm) + camera.position.distanceTo(controls.target) * snapshot.footprintGain <= safeMapRadius + 1e-7,
+    `${label}: complete target/zoom footprint stays inside the navigation envelope`);
+  assert.ok(Number.isFinite(snapshot.horizonLimitKm), `${label}: finite horizon limit`);
   assert.ok(cameraMap.h <= snapshot.horizonLimitKm + 1e-6, `${label}: horizon stays inside measured outer coverage`);
+  const minimumGround = Math.min(...Object.values(terrain.tiles).map(tile => tile.min_m)) / 1000;
+  const horizonAngle = Math.acos(MathUtils.clamp((terrain.R + minimumGround) / (terrain.R + cameraMap.h), -1, 1));
+  const cameraAngle = 2 * Math.atan(cameraMap.m.length() / (2 * terrain.R));
+  const outerAngle = 2 * Math.atan(snapshot.outerHalfKm / (2 * terrain.R));
+  assert.ok(cameraAngle + horizonAngle <= outerAngle + 1e-8, `${label}: independent spherical horizon coverage`);
   const tanY = Math.tan(MathUtils.degToRad(camera.getEffectiveFOV()) / 2), tanX = tanY * camera.aspect;
   // Independently check a denser 9x9 near-plane grid than the production guard
   // needs at this 50 m near distance; use the actual decoded height sampler.
@@ -53,8 +62,9 @@ function assertSafe(view, label) {
   }
 }
 
-test('initial landing and all four real candidate sites preserve the existing controls handover', () => {
-  for (const aspect of [16 / 9, 9 / 19.5, 4]) for (const site of [null, ...terrain.sites]) {
+test('initial landing and every named or data-selected candidate preserve the existing controls handover', () => {
+  assert.ok(terrain.candidatePool.some(site => site.id === 'D11'), 'load the expanded pool, including its outer-tile regression');
+  for (const aspect of [16 / 9, 9 / 19.5, 4]) for (const site of [null, ...terrain.candidatePool]) {
     const reference = createView({ aspect, site, bounded: false });
     const view = createView({ aspect, site });
     try {
@@ -77,6 +87,62 @@ test('site D remains accessible at 123 km from the pole instead of being clipped
     assert.ok(Math.hypot(...snapshot.targetMapKm) > 120);
     assert.ok(snapshot.maxDistanceKm > 17);
     assertSafe(view, 'site D');
+  } finally { view.dispose(); }
+});
+
+test('D11 and D12 promote to outer coverage without translating their landing targets', () => {
+  for (const id of ['D11', 'D12']) {
+    const site = terrain.candidatePool.find(site => site.id === id);
+    assert.ok(site);
+    const view = createView({ site });
+    try {
+      view.controls.update(); const snapshot = view.bounds.getSnapshot();
+      assert.equal(snapshot.tile, 'outer', `${id}: landing footprint uses outer coverage`);
+      assert.ok(snapshot.navigationRadiusKm > snapshot.innerHalfKm);
+      assert.ok(snapshot.navigationRadiusKm < snapshot.outerHalfKm, 'outer tile edges remain unreachable');
+      assert.ok(view.controls.target.distanceTo(view.pose.target) < 1e-6, `${id}: original landing target remains fixed`);
+      assertSafe(view, id);
+    } finally { view.dispose(); }
+  }
+});
+
+test('actual outer-edge pan requests and extreme zoom preserve a finite covered horizon at every aspect', () => {
+  const site = terrain.candidatePool.find(site => site.id === 'D11');
+  const outerHalf = terrain.tiles.outer.half_extent_m / 1000;
+  for (const aspect of [16 / 9, 9 / 19.5, 4]) {
+    const view = createView({ site, aspect });
+    try {
+      view.controls.update();
+      for (let direction = 0; direction < 8; direction++) for (const radius of [outerHalf - 1, outerHalf + 80, outerHalf * 2]) {
+        for (const distance of [.001, 2, 17, 80, 220, 500]) {
+          const angle = direction * Math.PI / 4;
+          const requestedMap = new Vector2(Math.cos(angle) * radius, Math.sin(angle) * radius);
+          const target = mapToScene(terrain.R, requestedMap, terrain.heightAt(requestedMap) + .4);
+          const offset = view.camera.position.clone().sub(view.controls.target).normalize();
+          view.controls.target.copy(target); view.camera.position.copy(target).addScaledVector(offset, distance);
+          view.controls.update();
+          assertSafe(view, `outer edge aspect ${aspect}, direction ${direction}, radius ${radius}, distance ${distance}`);
+        }
+      }
+    } finally { view.dispose(); }
+  }
+});
+
+test('portrait radial-boundary correction reaches the minimum distance in the first update', () => {
+  const view = createView({ aspect: .6304785342887045 });
+  try {
+    view.camera.fov = 34.73005873709917; view.camera.updateProjectionMatrix();
+    const requestedMap = new Vector2(186.79864211320313, -148.83998721677148);
+    const target = mapToScene(terrain.R, requestedMap, terrain.heightAt(requestedMap) + .4);
+    const offset = new Vector3(.7967287383683522, .09402055263678114, .5969786035862993);
+    view.controls.target.copy(target); view.camera.position.copy(target).addScaledVector(offset, 1.9517301600170085);
+    view.controls.update();
+    assertSafe(view, 'first portrait boundary update');
+    const before = view.bounds.getSnapshot().stats;
+    for (let i = 0; i < 100; i++) view.controls.update();
+    const after = view.bounds.getSnapshot().stats;
+    assert.equal(after.evaluations, before.evaluations, 'a corrected boundary pose must not need more convergence frames');
+    assert.equal(after.heightSamples, before.heightSamples);
   } finally { view.dispose(); }
 });
 

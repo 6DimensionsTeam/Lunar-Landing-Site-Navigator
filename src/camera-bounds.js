@@ -22,6 +22,7 @@ export function installCameraBounds({ camera, controls, tiles, radiusKm, heightA
   const maxGround = Math.max(tiles.hero.max_m, tiles.inner.max_m, tiles.outer.max_m) / 1000;
   const finestCell = Math.min(resolution(tiles.hero), resolution(tiles.inner), resolution(tiles.outer));
   const floorKm = .0005, surfaceRadius = radiusKm + minGround;
+  const outerAngle = 2 * Math.atan(outerHalf / (2 * radiusKm));
   const originalUpdate = controls.update;
   const originalLimits = { min: controls.minDistance, max: controls.maxDistance };
   const cameraMap = new Vector2(), targetMap = new Vector2(), sampleMap = new Vector2();
@@ -82,8 +83,20 @@ export function installCameraBounds({ camera, controls, tiles, radiusKm, heightA
       const footprintGain = Math.max(1, Math.hypot(tanX, tanY));
       // This sphere contains the complete near plane, even at a grazing view angle.
       const nearRadius = camera.near * Math.sqrt(1 + tanX * tanX + tanY * tanY);
+      // Reserve enough measured ground beyond the camera for a horizon even above
+      // the highest terrain. The outer tile permits exploration beyond inner data;
+      // its finite edge is not itself a safe place to put the camera.
+      const horizonReserve = Math.acos(clamp(surfaceRadius / (radiusKm + maxGround + nearRadius + floorKm), -1, 1));
+      const navigationRadius = 2 * radiusKm * Math.tan(Math.max(0, outerAngle - horizonReserve) / 2);
+      // Use the same near-plane reserve for camera, target and zoom. Otherwise an
+      // outward-facing minimum-distance orbit can be clipped shorter at this edge.
+      const safeMapRadius = Math.max(0, navigationRadius - nearRadius);
       const minDistance = Math.max(Number.isFinite(userMin) ? userMin : 0, nearRadius + floorKm);
-      const centreMax = Math.max(minDistance, Math.min(userMax, innerHalf / footprintGain));
+      const centreMax = Math.max(minDistance, Math.min(userMax, safeMapRadius / footprintGain));
+      const tileFor = footprint => footprint < heroHalf * .92 ? 'hero' : footprint < innerHalf * .92 ? 'inner' : 'outer';
+      const zoomLimit = (tile, edge, radial) => Math.max(minDistance, Math.min(userMax,
+        (safeMapRadius - radial) / footprintGain,
+        ((tile === 'hero' ? heroHalf : tile === 'inner' ? innerHalf : outerHalf) - edge) / footprintGain));
       const panChanged = !cached || !controls.target.equals(cachedTarget);
       let selectedTile = 'inner', maxDistance = centreMax, clearance = 0, horizonLimit = Infinity;
       // A terrain lift and an edge pan constrain one another. Ordinary movement exits
@@ -96,27 +109,24 @@ export function installCameraBounds({ camera, controls, tiles, radiusKm, heightA
         distance = clamp(distance, minDistance, centreMax);
         // Preserve the orbit offset when panning hits a boundary. Zooming at an edge stops in place.
         const reserve = (panChanged || pass > 0 ? distance : minDistance) * footprintGain;
-        const panHalf = Math.max(0, innerHalf - reserve);
+        const panRadius = Math.max(0, safeMapRadius - reserve);
         previousTarget.copy(controls.target);
-        targetMap.set(clamp(targetMap.x, -panHalf, panHalf), clamp(targetMap.y, -panHalf, panHalf));
+        if (targetMap.length() > panRadius) targetMap.setLength(panRadius);
         const targetFloor = sample(targetMap);
         mapToScene(radiusKm, targetMap, clamp(targetH, targetFloor, maxGround), controls.target);
         correction.copy(controls.target).sub(previousTarget); camera.position.add(correction);
         const targetEdge = Math.max(Math.abs(targetMap.x), Math.abs(targetMap.y));
-        // Promote to the surrounding tile before the hero footprint touches its edge.
-        // This permits continuous hero/inner panning and zooming without a tile-edge trap.
-        selectedTile = targetEdge + distance * footprintGain < heroHalf * .92 ? 'hero' : 'inner';
-        const selectedHalf = selectedTile === 'hero' ? heroHalf : innerHalf;
-        maxDistance = Math.max(minDistance, Math.min(userMax, (selectedHalf - targetEdge) / footprintGain));
+        // Promote through all measured tiles before the footprint reaches an edge.
+        selectedTile = tileFor(targetEdge + distance * footprintGain);
+        maxDistance = zoomLimit(selectedTile, targetEdge, targetMap.length());
         distance = Math.min(distance, maxDistance);
         camera.position.copy(controls.target).addScaledVector(offset, distance);
 
         let cameraH = sceneToMap(radiusKm, camera.position, cameraMap).h;
-        const safeMapHalf = Math.max(0, innerHalf - nearRadius);
-        cameraMap.set(clamp(cameraMap.x, -safeMapHalf, safeMapHalf), clamp(cameraMap.y, -safeMapHalf, safeMapHalf));
+        if (cameraMap.length() > safeMapRadius) cameraMap.setLength(safeMapRadius);
         // Bound the possible ground horizon by measured outer coverage, independently of azimuth.
         // The lower terrain envelope is conservative compared with a flat tangent-plane footprint.
-        const availableAngle = Math.max(0, 2 * Math.atan(outerHalf / (2 * radiusKm)) - 2 * Math.atan(cameraMap.length() / (2 * radiusKm)));
+        const availableAngle = Math.max(0, outerAngle - 2 * Math.atan(cameraMap.length() / (2 * radiusKm)));
         horizonLimit = surfaceRadius / Math.cos(Math.min(availableAngle, Math.PI / 3)) - radiusKm;
         const floor = sample(cameraMap) + nearRadius + floorKm;
         cameraH = Math.max(floor, Math.min(cameraH, horizonLimit));
@@ -139,20 +149,21 @@ export function installCameraBounds({ camera, controls, tiles, radiusKm, heightA
         }
         clearance = sceneToMap(radiusKm, camera.position, cameraMap).h - sample(cameraMap);
         const actualDistance = camera.position.distanceTo(controls.target);
-        if (deficit <= 1e-9 && actualDistance <= maxDistance + 1e-9 && cameraH <= horizonLimit + 1e-9) break;
+        if (deficit <= 1e-9 && actualDistance >= minDistance - 1e-9 && actualDistance <= maxDistance + 1e-9 && cameraH <= horizonLimit + 1e-9) break;
       }
       // Refresh the available zoom radius after a terrain-driven lift or pan correction.
       sceneToMap(radiusKm, controls.target, targetMap);
       const finalEdge = Math.max(Math.abs(targetMap.x), Math.abs(targetMap.y));
       const finalDistance = camera.position.distanceTo(controls.target);
-      selectedTile = finalEdge + finalDistance * footprintGain < heroHalf * .92 ? 'hero' : 'inner';
-      maxDistance = Math.max(minDistance, Math.min(userMax, ((selectedTile === 'hero' ? heroHalf : innerHalf) - finalEdge) / footprintGain));
+      selectedTile = tileFor(finalEdge + finalDistance * footprintGain);
+      maxDistance = zoomLimit(selectedTile, finalEdge, targetMap.length());
       controls.minDistance = lastMin = minDistance; controls.maxDistance = lastMax = maxDistance;
       const changed = !samePosition(camera.position, beforePosition) || !samePosition(controls.target, beforeTarget);
       if (changed) { stats.corrections++; flushMomentum(); }
       cachedPosition.copy(camera.position); cachedTarget.copy(controls.target);
       cachedFov = camera.fov; cachedAspect = camera.aspect; cachedNear = camera.near; cachedZoom = camera.zoom; cached = true;
       snapshot = { tile: selectedTile, heroHalfKm: heroHalf, innerHalfKm: innerHalf, outerHalfKm: outerHalf,
+        navigationRadiusKm: navigationRadius,
         minDistanceKm: minDistance, maxDistanceKm: maxDistance, distanceKm: finalDistance, clearanceKm: clearance,
         nearRadiusKm: nearRadius, footprintGain, horizonLimitKm: horizonLimit,
         cameraMapKm: cameraMap.toArray(), targetMapKm: targetMap.toArray() };
