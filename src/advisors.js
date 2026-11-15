@@ -29,6 +29,12 @@ const advisors = [
 // Contract: pass is true/false only when a sourced test is conclusive, null otherwise.
 // All current cases require engineering evidence absent from this landing-site dataset.
 // This function does not modify its inputs, rankSites results, scores or requirement verdicts.
+//
+// `entry` is part of the agreed signature and deliberately unread today. It carries the rankSites
+// result for the site (stats, ground, fails, verdicts), which is what a future rule would need to
+// observe something the raw site record does not hold -- a measured slope from the zone grid, say.
+// Keeping it in the signature means adding such a rule does not change the contract or the call
+// site. It is not read now because no sourced case here has a test that ground data can settle.
 export function reviewSite(site = {}, entry = {}) {
   return advisors.map(rule => {
     const observations = [];
