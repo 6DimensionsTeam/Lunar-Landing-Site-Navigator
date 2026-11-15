@@ -15,7 +15,16 @@ function diskFraction(el, hor) {
 export function createSites(data, eph) {
   const R = data.radiusKm;
   const step = data.sites.azimuth_step_deg;
-  const sites = data.sites.sites.map((s) => {
+  // Every measured place, not just the four published regions: the pre-selected pool, and the
+  // ground the scan measured and rejected. All of them carry the same horizon profile, so all of
+  // them can answer "is the Sun up here right now", which is what the surface HUD asks once the
+  // camera is standing at a site the user chose rather than always at Shackleton.
+  const source = [
+    ...data.sites.sites.map((s) => ({ ...s, source: 'nasa' })),
+    ...(data.candidates?.candidates || []).map((s) => ({ ...s, source: 'data' })),
+    ...(data.candidates?.surveyed || []).map((s) => ({ ...s, source: 'surveyed' })),
+  ];
+  const sites = source.map((s) => {
     const la = THREE.MathUtils.degToRad(s.lat), lo = THREE.MathUtils.degToRad(s.lon);
     const up = new THREE.Vector3(Math.cos(la) * Math.cos(lo), Math.cos(la) * Math.sin(lo), Math.sin(la));
     const east = new THREE.Vector3(-Math.sin(lo), Math.cos(lo), 0);

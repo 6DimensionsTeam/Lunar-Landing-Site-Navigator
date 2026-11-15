@@ -97,10 +97,52 @@
       <section id="explore" hidden aria-label="Free exploration">
         <header class="topbar">
           <button id="back" class="back" type="button">Back <kbd>ESC</kbd></button>
-          <p class="loc"><b>Shackleton Crater</b> <span>FREE CAMERA</span></p>
+          <p class="loc"><b data-k="ex-name">Shackleton Crater</b> <span data-k="ex-sub">FREE CAMERA</span></p>
           <p class="clock"><time data-k="clock" data-tab>----</time> <span class="dim">UTC</span></p>
         </header>
         <p class="hint"><span><b>Drag</b> rotate</span> <span><b>Scroll</b> zoom</span> <span><b>Right-drag</b> pan</span></p>
+
+        <div class="ex-dock">
+          <section class="panel" aria-labelledby="ex-site-h">
+            <h2 id="ex-site-h">Landing Site <span data-pill="ex-verdict">—</span></h2>
+            <dl class="rows">
+              <div><dt>Site</dt><dd data-k="ex-id">—</dd></div>
+              <div><dt>Coordinates</dt><dd data-k="ex-ll">—</dd></div>
+              <div><dt>Elevation</dt><dd data-k="ex-elev">—</dd></div>
+              <div><dt>Ground</dt><dd data-k="ex-ground">—</dd></div>
+              <div><dt>Slope</dt><dd data-k="ex-slope">—</dd></div>
+            </dl>
+            <p class="credit" data-k="ex-src">—</p>
+          </section>
+
+          <section class="panel" aria-labelledby="ex-light-h">
+            <h2 id="ex-light-h">Sun &amp; Earth <span class="live-dot" data-pill="ex-live">LIVE</span></h2>
+            <dl class="rows">
+              <div><dt>Sun now</dt><dd><span data-k="ex-sun">—</span><em data-pill="exsun">—</em></dd></div>
+              <div><dt>Earth now</dt><dd><span data-k="ex-earth">—</span><em data-pill="exearth">—</em></dd></div>
+              <div><dt>Next change</dt><dd data-k="ex-next">—</dd></div>
+              <div><dt>Sunlit</dt><dd data-k="ex-sunpct">—</dd></div>
+              <div><dt>Earth link</dt><dd data-k="ex-earthpct">—</dd></div>
+              <div><dt>Both at once</dt><dd data-k="ex-both">—</dd></div>
+            </dl>
+          </section>
+
+          <section class="panel" aria-labelledby="ex-risk-h">
+            <h2 id="ex-risk-h">Endurance &amp; Hazard</h2>
+            <dl class="rows">
+              <div><dt>Longest night</dt><dd data-k="ex-dark">—</dd></div>
+              <div><dt>Longest blackout</dt><dd data-k="ex-blind">—</dd></div>
+              <div><dt>Nearest ice</dt><dd data-k="ex-ice">—</dd></div>
+              <div><dt>Nearest fault</dt><dd data-k="ex-fault">—</dd></div>
+            </dl>
+            <p class="credit">Fault distance is a proximity proxy from mapped lobate scarps (GRL 2022, doi:10.1029/2022GL098505), not a moonquake prediction: magnitude and recurrence are unknown for the south pole.</p>
+          </section>
+
+          <section class="panel" id="ex-advisors" hidden aria-labelledby="ex-adv-h">
+            <h2 id="ex-adv-h">Flight History Review</h2>
+            <div id="ex-adv-list"></div>
+          </section>
+        </div>
         <button id="torover" class="cta2 rover-cta" type="button">Rover Close-up</button>
         <button id="tositemap" class="cta2 sitemap-cta" type="button">Back to Site Map</button>
         <button id="toanalysis" class="cta2 analysis-cta" type="button">Analyse This Site</button>

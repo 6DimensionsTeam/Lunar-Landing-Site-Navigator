@@ -1213,8 +1213,51 @@ body {
 #home.in .sites-mk { animation: fade 0.8s 1.9s both; }
 #home.in .dock > * { animation: riseIn 0.9s 1.1s both var(--ease); }
 #home.in .dock > .cta-stack { animation-delay: 1.3s; }       /* both side panels appear together, the button follows */
+/* ---------- explore: site readout down the right edge ---------- */
+/* The surface view used to carry nothing but navigation buttons, so standing at a site told you
+   nothing about it. These panels answer the questions the choice was made on, at the place the
+   choice put the camera. Right edge, because the three navigation buttons own the left. */
+.ex-dock {
+  position: absolute;
+  right: var(--pad);
+  top: calc(var(--pad) + 52px);    /* under the top bar */
+  bottom: calc(var(--pad) + 52px); /* over the bottom button row (Return to Moon / Rover Close-up) */
+  width: min(272px, 25vw);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+  z-index: 4;
+}
+.ex-dock::-webkit-scrollbar { width: 4px; }
+.ex-dock::-webkit-scrollbar-thumb { background: rgba(242, 244, 245, 0.3); }
+.ex-dock .panel { flex: 0 0 auto; }
+.ex-dock .rows dd { font-variant-numeric: tabular-nums; }
+.ex-dock .credit { margin-top: 0.5em; font: 500 0.72em/1.45 var(--sans); color: var(--dim); }
+#ex-site-h [data-pill] { margin-left: auto; padding: 0.25em 0.5em 0.2em; font: 700 0.8em/1 var(--sans); letter-spacing: 0.1em; background: var(--red); color: #fff; }
+#ex-site-h [data-pill][data-state='on'] { background: var(--fg); color: #111; }
+#ex-site-h { display: flex; align-items: center; }
+#ex-adv-list { display: grid; gap: 0.45em; }
+.adv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 0.5em;
+  padding-bottom: 0.45em;
+  border-bottom: 1px solid rgba(242, 244, 245, 0.1);
+  font: 500 0.78em/1.4 var(--sans);
+}
+.adv:last-child { border-bottom: 0; padding-bottom: 0; }
+.adv i { font-style: normal; font-weight: 700; color: var(--ok); }
+.adv.no i { color: var(--red-hi); }
+.adv b { font-weight: 700; color: var(--fg); }
+.adv span { grid-column: 2; color: var(--fg2); }
+@media (max-width: 900px) { .ex-dock { display: none; } }
+
 #explore.in > * { animation: fadeUp 0.7s 0.1s both var(--ease); }
 #explore.in > .hint { animation: fade 0.8s 0.4s both; }
+#explore.in > .ex-dock { animation: dropIn 0.75s 0.3s both var(--ease); }
 #orbit.in::before { animation: fade 1.2s both; }
 #orbit.in .topbar { animation: dropIn 0.8s 0.1s both var(--ease); }
 #orbit.in .ttl { animation: wipeR 0.7s 0.3s both cubic-bezier(0.6, 0, 0.2, 1); }
