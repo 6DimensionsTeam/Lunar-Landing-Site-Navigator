@@ -43,6 +43,10 @@ export function loadTerrainFixture() {
     assert.ok(homeUTC);
     const buffer = new Float32Array(binary.buffer.slice(binary.byteOffset, binary.byteOffset + binary.byteLength));
     return { tiles, R, heightAt, groundAt, crater, sites: sites.sites, candidatePool: candidatePool({ sites, candidates }),
+      // Measured ground that failed the pre-selection bar. Still real terrain, still somewhere
+      // a camera can be sent, and it holds the sites furthest from the pole, which are what
+      // exercise the outer tile.
+      surveyed: (candidates.surveyed || []).map((s) => ({ ...s, source: 'data' })),
       createRig(camera) {
         const eph = new Ephemeris(buffer, metadata, R);
         eph.update((Date.parse(homeUTC) - eph.start) / 3600e3);
