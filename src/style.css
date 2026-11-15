@@ -149,10 +149,19 @@ body {
   top: calc(var(--pad) - 4px);
   display: flex;
   align-items: center;
+  gap: 0.6em;
   color: var(--fg2);
   text-shadow: 0 0 6px #000;
 }
 .topbar p { margin: 0; }
+/* The bar's content is all `white-space: nowrap`, so when it stops fitting the flex items are
+   squeezed below their content width and the text spills out of its own box and over the
+   neighbour -- the back label, the clock and the Change time control printed on top of each
+   other. The text must keep its intrinsic width and the decorative hairline must be the thing
+   that yields, since it carries nothing. This shows up as soon as any label is longer than the
+   English it was laid out with, which includes a browser translating the page in place. */
+.topbar > .loc, .topbar > .clock, .topbar > .back { flex: 0 0 auto; }
+.topbar .frame { min-width: 0; flex-shrink: 1; }
 /* hairline across the middle, a short vertical tick at each end */
 #home .topbar::after,
 #select .topbar::after {
@@ -721,8 +730,12 @@ body {
 .credit { margin: 0.9em 0 0; padding-top: 0.7em; border-top: 1px solid rgba(242, 244, 245, 0.13); font: 500 0.78em/1.4 var(--sans); letter-spacing: 0.06em; color: var(--dim); }
 
 /* ---------- landing-zone survey (globe) ---------- */
-.legend { grid-area: sites; justify-self: start; width: var(--dock-w); box-sizing: border-box; }
-.legend h2::before { content: ''; width: 0.55em; height: 0.55em; background: var(--fg); }
+/* Scoped to the panel, not to every element carrying the class. The explore screen's ground-class
+   list is <dl class="rows legend">, so an unscoped `.legend` gave that <dl> the select dock's
+   grid-area and a fixed 441px width: the percentages broke out of their panel and floated,
+   unanchored from the labels they belong to. The select panel is the only .panel.legend. */
+.panel.legend { grid-area: sites; justify-self: start; width: var(--dock-w); box-sizing: border-box; }
+.panel.legend h2::before { content: ''; width: 0.55em; height: 0.55em; background: var(--fg); }
 /* The dock is anchored to the bottom edge, so whatever is inside it grows upward: a long list
    does not overflow the bottom of the screen, it lifts the whole panel over the title block.
    Capping the dock's height and letting the list scroll keeps the panels where they belong
@@ -873,9 +886,10 @@ body {
 #sel-site-list div.no .why { color: rgba(139, 151, 158, 0.72); }
 #sel-site-list div.sel { background: rgba(242, 244, 245, 0.07); }
 #sel-site-list div.sel dt { color: #fff; }
-/* A place our own scan found, as against a region NASA published. Marked on the id chip
-   rather than the name, so the two read as the same kind of row with a different provenance. */
-#sel-site-list div.found dt i { background: transparent; border: 1px solid var(--red); color: var(--red); }
+/* A place our own scan found is NOT restyled. It used to take a red outlined id, which made two
+   of the six rows look like a different kind of thing from the other four on a list whose rows
+   are meant to be compared. The row already says where it came from in its own text
+   ("data-selected"), so the id stays the same plain white as every other. */
 #sel-site-list .more {
   margin-top: 0.4em;
   padding-top: 0.4em;
@@ -1233,18 +1247,29 @@ body {
 /* The lanes are the argument: one line per candidate site, running across the hundred requirement
    sets, broken wherever that set ruled the site out. The site whose line survives the most sets
    is the one the trial is looking for, and it is not always the site with the highest score. */
-#worlds .w-ttl { top: 11vh; max-width: min(46ch, 42vw); }
+/* The description paragraph is gone at every width, not only the narrow ones: the line under
+   the chart already says how it is ordered, and the paragraph stood 380px tall on a large screen
+   because the title was also squeezed to 378px wide and wrapped to three lines. Both were what
+   the chart then had to be fitted around. */
+#worlds .w-ttl { top: 11vh; max-width: min(64ch, 80vw); }
+#worlds .w-ttl .ttl-d { display: none; }
 .w-stage {
   position: absolute;
   left: var(--pad);
   right: var(--pad);
+  /* Bounded on both edges, below the title and above the buttons, instead of anchored to the
+     bottom and left to grow upward. Anchored that way it grew into the title whenever its
+     content was taller than the room, and the two printed over each other. The chart row below
+     takes whatever is left and scrolls inside itself, so nothing can overlap at any height. */
+  top: max(27vh, calc(11vh + 110px));
   bottom: 11vh;
   display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
   /* One column now. The second column held the survival bars, which duplicated the lanes'
      own counts; the verdict and provenance that remain belong under the chart, not beside it. */
   grid-template-columns: minmax(0, 1fr);
   gap: clamp(16px, 2.5vw, 40px);
-  align-items: end;
+  align-items: stretch;
   pointer-events: auto;
 }
 /* The chart needs its own ground. Sitting directly on the render, white bars competed with lit
@@ -1252,8 +1277,12 @@ body {
    width of the same bar. A flat translucent black panel, the same one the dock panels use. */
 .w-gridwrap {
   min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
   padding: 1.1em 1.3em 1.2em;
-  background: rgba(5, 6, 8, 0.82);
+  /* 0.82 was fine over the original near-black globe. The globe is lifted to a legible grey now,
+     so the same panel let lit crater rims through the bars; it needs to be nearly opaque. */
+  background: rgba(5, 6, 8, 0.93);
   border: 1px solid var(--line);
 }
 .w-cap {
@@ -1273,16 +1302,22 @@ body {
 .w-lanes { display: grid; gap: 7px; }
 .w-lane {
   display: grid;
-  grid-template-columns: 2.2em minmax(0, 11em) minmax(0, 1fr) 3.2em;
+  grid-template-columns: 2.2em minmax(0, 16em) minmax(0, 1fr) 3.2em;
   grid-template-rows: auto auto;
   align-items: center;
   column-gap: 0.8em;
   opacity: 0.55;
   transition: opacity 0.3s;
 }
-/* The id, track and count span both rows so they stay centred against the name block, which is
-   two lines (name plus night) with the weakness note under it. */
-.w-lane-id, .w-lane-track, .w-lane-count { grid-row: 1 / 3; }
+/* Every child placed explicitly. Leaving the track to auto-placement let it collide with the
+   note's explicit `grid-column`, and at 657px the collision collapsed every bar to zero width:
+   the chart rendered its labels and counts with no lanes at all. Explicit placement cannot
+   collide, so the narrow layout only has to restate the columns, not re-derive the order. */
+.w-lane-id { grid-column: 1; grid-row: 1 / 3; }
+.w-lane-name { grid-column: 2; grid-row: 1; }
+.w-lane-why { grid-column: 2; grid-row: 2; }
+.w-lane-track { grid-column: 3; grid-row: 1 / 3; }
+.w-lane-count { grid-column: 4; grid-row: 1 / 3; }
 .w-lane.alive { opacity: 1; }
 .w-lane-id {
   justify-self: start;
@@ -1292,7 +1327,6 @@ body {
   background: var(--fg);
   color: #111;
 }
-.w-lane.found .w-lane-id { background: transparent; border: 1px solid var(--red); color: var(--red); }
 .w-lane-name {
   overflow: hidden;
   font: 600 0.84em/1.2 var(--sans);
@@ -1346,11 +1380,8 @@ body {
   color: var(--fg2);
 }
 .w-lane.lead .w-lane-count { color: #fff; }
-/* Under the name, not under the track: in column 3 it sat on top of the next lane's bar. The
-   name column has the vertical room for it and it belongs with the site, not with the axis. */
+/* Typography only; placement is in the explicit block above. */
 .w-lane-why {
-  grid-column: 2;
-  grid-row: 2;
   margin: 0.1em 0 0;
   font: 500 0.7em/1.25 var(--sans);
   letter-spacing: 0.03em;
@@ -1368,7 +1399,7 @@ body {
   display: flex;
   justify-content: space-between;
   margin: 0 0 0.5em;
-  padding-left: calc(2.2em + 9em + 1.6em);
+  padding-left: calc(2.2em + 16em + 1.6em);
   font: 600 0.68em/1 var(--sans);
   letter-spacing: 0.12em;
   color: var(--dim);
@@ -1390,7 +1421,14 @@ body {
 .w-k-none { background: rgba(226, 32, 15, 0.22); border-color: rgba(226, 32, 15, 0.5) !important; }
 
 /* No longer a side panel: the verdict and its provenance read as a caption under the chart. */
-.w-tally { max-width: 92ch; padding: 0.2em 0 0; }
+.w-tally {
+  max-width: 92ch;
+  padding: 0.8em 1.1em 0.9em;
+  /* The verdict is the answer, and it was set straight onto the terrain with no ground of its
+     own, so on a bright patch the sentence and the provenance line beneath it were unreadable. */
+  background: rgba(5, 6, 8, 0.93);
+  border: 1px solid var(--line);
+}
 .w-tally h2 { margin: 0 0 0.7em; font: 700 0.9em/1 var(--sans); letter-spacing: 0.16em; color: var(--fg); }
 .w-note { margin: 0.8em 0 0; font: 600 0.84em/1.45 var(--sans); color: var(--fg); }
 .w-tally .credit { margin-top: 0.7em; font: 500 0.72em/1.45 var(--sans); color: var(--dim); }
@@ -1404,30 +1442,19 @@ body {
 #worlds.out > * { animation: fade 0.3s both reverse; }
 
 @media (max-width: 1100px) {
-  .w-stage { grid-template-columns: minmax(0, 1fr); gap: 14px; bottom: 9vh; }
-  .w-tally { max-height: 28vh; overflow-y: auto; }
-  #worlds .w-ttl { max-width: 60vw; }
-  /* The stage stops sitting beside the title at this width and goes under it instead, so the
-     title has to give up its description here too -- not 340px lower down. Measured at 857x802:
-     the title ran to y=368 while the stage started at y=227, so it covered the caption and the
-     top two rows of the grid. The stage is bottom-anchored and grows upward, which is why the
-     collision lands on the grid rather than pushing anything down. */
-  #worlds .w-ttl .ttl-d { display: none; }
-  /* Bound the stage's own top edge as well, so a tall tally can never reach back into the title. */
-  .w-stage { top: 30vh; align-content: end; }
-  /* Six lanes need 344px; a 34vh cap (273px at 802px tall) clipped the last two, and a chart
-     whose bottom rows are missing cannot be compared at all. The lanes are the screen's content,
-     so they get the space and the caption below them is what scrolls if anything has to. */
-  .w-lanes { max-height: none; }
+  .w-stage { gap: 12px; bottom: 9vh; }
   .w-tally { max-height: 22vh; overflow-y: auto; }
+  #worlds .w-ttl { max-width: 80vw; }
 }
 @media (max-width: 760px) {
   /* The name column is the first thing to go: the id and the lane carry the comparison, and a
      six-row chart with two-character ids is still readable without the full site names. */
-  .w-lane { grid-template-columns: 2.2em minmax(0, 1fr) 2.8em; gap: 0.6em; }
-  .w-lane-name { display: none; }
-  .w-lane-why { grid-column: 2 / -1; }
-  .w-axis { padding-left: calc(2.2em + 0.6em); }
+  /* The name column shrinks rather than disappearing: hiding it left the ids alone to identify
+     six sites, and the explicit grid still reserved its track. The night figure under the name is
+     what goes, since the weakness note is the more useful of the two lines here. */
+  .w-lane { grid-template-columns: 2.2em minmax(0, 7.5em) minmax(0, 1fr) 2.8em; column-gap: 0.6em; }
+  .w-lane-night { display: none; }
+  .w-axis { padding-left: calc(2.2em + 7.5em + 1.2em); }
 }
 @media (prefers-reduced-motion: reduce) {
   .w-seg, .w-lane { transition: none !important; }
@@ -1581,7 +1608,7 @@ body {
      441px inside a 341.7px track and covered the candidate list by 79.7px, measured at 740x360 --
      the window where this breakpoint applies but the 720px one does not. */
   .sites, .params, .tele, .live,
-  .legend, .analysis-panel, .analysis-ai { justify-self: stretch; width: auto; }
+  .panel.legend, .analysis-panel, .analysis-ai { justify-self: stretch; width: auto; }
   /* Two rows now, so the height cap has to be shared between them. Without a row template the
      panel row takes the dock's whole max-height (486px at 900px tall) and the button row lands
      past the bottom edge: measured at 740x900, the button row sat at y=898.3 in a 900px viewport
@@ -1620,7 +1647,7 @@ body {
      `width: var(--dock-w)` (441px at this font size) sizes the shared 1fr column to 441px and
      pushes the whole stack past both viewport edges -- measured on #analysis, where .analysis-ai
      was the one still holding its fixed width. */
-  .sites, .legend, .analysis-panel, .analysis-ai, .params, .tele,
+  .sites, .panel.legend, .analysis-panel, .analysis-ai, .params, .tele,
   .live, .cta-stack, .cta { justify-self: stretch; width: auto; }
   /* The unconditional `max-height: calc(100vh - 46vh)` on #select/#analysis .dock assumed two
      panels sharing one row; stacked three-high it leaves no room and pushes .cta-stack past the

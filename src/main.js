@@ -129,6 +129,51 @@ async function boot() {
     scene.add(terrain.group);
     return '3 nested levels';
   });
+  // The landing point, marked on the ground. Standing on the surface there was nothing saying
+  // which patch of it the mission had chosen: the panels named the site and the camera was
+  // pointed at it, but the terrain itself carried no mark, so "where exactly am I" had no answer
+  // in the view. A flat ring with a short mast, in the HUD's accent red so it cannot be mistaken
+  // for terrain. Placed in scene units (km) from the site's own map coordinates.
+  const siteMark = (() => {
+    const group = new THREE.Group();
+    const red = 0xe2200f;
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.035, 0.05, 48, 1),
+      new THREE.MeshBasicMaterial({ color: red, transparent: true, opacity: 0.95, side: THREE.DoubleSide, depthWrite: false }),
+    );
+    ring.rotation.x = -Math.PI / 2;
+    const inner = new THREE.Mesh(
+      new THREE.CircleGeometry(0.012, 24),
+      new THREE.MeshBasicMaterial({ color: red, transparent: true, opacity: 0.85, side: THREE.DoubleSide, depthWrite: false }),
+    );
+    inner.rotation.x = -Math.PI / 2;
+    // A mast, so the point is findable when the camera is low and the ring is edge-on.
+    const mast = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.0022, 0.0022, 0.09, 6),
+      new THREE.MeshBasicMaterial({ color: red, transparent: true, opacity: 0.8, depthWrite: false }),
+    );
+    mast.position.y = 0.045;
+    group.add(ring, inner, mast);
+    group.visible = false;
+    group.renderOrder = 3;
+    scene.add(group);
+    return {
+      group,
+      // Stand it on the ground at a site and orient it to the local up, which at these latitudes
+      // is far from the scene's own +y.
+      placeAt(site) {
+        if (!site) { group.visible = false; return; }
+        const m = latLonToMap(R, site.lat, site.lon);
+        group.position.copy(groundAt(m, 0.004));
+        // upAt takes a point in scene space, not the map coordinate: it offsets by the body
+        // radius to find the direction away from the centre. Passing the map point gave a
+        // meaningless direction and would have planted the mast at a tilt.
+        const up = upAt(R, group.position);
+        group.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), up);
+        group.visible = true;
+      },
+    };
+  })();
   await B.run('Allocate soft shadow maps', () => {
     shadows = createShadows(terrain.shared, data.tiles.hero.half_extent_m / 1000, data.tiles.outer.half_extent_m / 1000);
     const u = terrain.uniforms;
@@ -383,6 +428,9 @@ async function boot() {
   const surfaceTarget = () => chosenSiteRef()?.site || sites.byId('A');
   let roverAtId = 'A';
   const placeRover = (site, force) => {
+    // The ground mark follows the same call as the rover so the two can never disagree about
+    // where the landing point is; it is cheap, so it is set every time rather than only on a move.
+    siteMark.placeAt(sites.byId(site.id) || site);
     if (!force && roverAtId === site.id) return;   // already parked there: keep its odometer and tracks
     rover.moveTo(sites.byId(site.id) || site);
     roverAtId = site.id;
@@ -738,6 +786,15 @@ async function boot() {
   function surfaceStep(t) {
     const h = nowH(t);
     syncScene(h);
+    // Hold the landing mark at a roughly constant size on screen. At its true size (a ring 50 m
+    // across) it is about two pixels from the 17 km the camera sits at on arrival, which is why
+    // it was in the scene and in frame and still could not be seen. The scale follows distance,
+    // and never drops below 1 so up close it is its real size and sits under the rover.
+    if (siteMark.group.visible) {
+      const d = camera.position.distanceTo(siteMark.group.position);
+      const k = Math.max(1, d * 0.5);
+      siteMark.group.scale.setScalar(k);
+    }
     const asp = aspect();
     if (Math.abs(camera.aspect - asp) > 1e-6) { camera.aspect = asp; camera.updateProjectionMatrix(); }
     let u = 1;
@@ -1935,7 +1992,7 @@ async function boot() {
       // Ordered by mean score, highest first -- NOT by survival. This is the whole argument of the
       // screen: if a site's score predicted how much mission change it could absorb, the lanes
       // would get shorter down the list. They do not. On the shipped pool Malapert Massif scores
-      // 0.750 and survives 20 sets while Shackleton Rim scores 0.638 and survives 50, so the
+      // 0.750 and survives 36 sets while Shackleton Rim scores 0.638 and survives 50, so the
       // longest lane sits at the bottom. Sorting by survival instead would hide that: the lanes
       // would decrease neatly and the reversal would be invisible.
       const byScore = [...result.sites].sort((a, b) => b.meanScore - a.meanScore);
@@ -2073,7 +2130,7 @@ async function boot() {
   }
 
   // Debug entry point
-  window.__lln = { THREE, camera, controls, terrain, shadows, sky, bodies, post, eph, data, renderer, rig, sites, zones, mission, crater, station, rover, clock, setTime, groundAt, heightAt, go, enterRover, leaveRover, keys, get mode() { return mode; } };
+  window.__lln = { THREE, scene, siteMark, camera, controls, terrain, shadows, sky, bodies, post, eph, data, renderer, rig, sites, zones, mission, crater, station, rover, clock, setTime, groundAt, heightAt, go, enterRover, leaveRover, keys, get mode() { return mode; } };
   // Core alignment trim panel: hidden entry, appears only in dev mode when the URL carries ?trim, and flies straight to the relay station on load (code kept for later calls).
   // Readings are absolute trims relative to CORE_Q, starting from CORE_TRIM in station.js; copy tuned values back into CORE_TRIM
   const trimQuery = new URLSearchParams(location.search).has('trim');
