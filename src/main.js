@@ -242,8 +242,8 @@ async function boot() {
   // Rover: rim of site A, drawn on top of the main scene in close-up (likewise after clearing depth)
   await B.run('Polar rover: URDF joint tree + near terrain', async () => {
     rover = await createRover(renderer, data.roverUrl, {
-      R, terrain, tiles: data.tiles, shadows, eph, anchor: sites.byId('A').map, crater,
-      heightAt, mapToScene, sceneToMap, upAt,
+      R, terrain, tiles: data.tiles, shadows, eph, anchor: sites.byId('A').map.clone(), crater,
+      heightAt, mapToScene, sceneToMap, upAt, latLonToMap,
     });
     post.composer.insertPass(rover.pass, 2);
     rover.sync(camera);
@@ -1352,6 +1352,8 @@ async function boot() {
       chosenSite = { site, entry, year: lastYear, needs: missionNeeds };
       mission.publishSite(chosenSite);
       surfaceHud.set(chosenSite);
+      // The rover belongs at the site the user committed to, not permanently at point A.
+      rover.moveTo(sites.byId(site.id) || site);
       const m = latLonToMap(R, site.lat, site.lon);
       hide();
       hud.hideScreen('select');
