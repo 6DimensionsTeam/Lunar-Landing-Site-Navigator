@@ -774,7 +774,7 @@ async function boot() {
     handler: null,
     ready(cfg) {
       this.cfg = cfg;
-      setTime(cfg.arriveH, 0);            // stop the clock at the arrival time
+      setTime(cfg.arriveH, 1);            // start the clock at the arrival time, running in real time
       if (this.handler) this.handler(cfg);
       else go('home');                    // nothing listening yet: fall back to the overview
     },
@@ -1140,7 +1140,9 @@ async function boot() {
       if (!active) return;
       const dt = Math.min(64, t - lastT);
       lastT = t;
-      eph.rawAt(nowH(), sunME, earthME);
+      const missionH = nowH(t);
+      eph.rawAt(missionH, sunME, earthME);
+      hud.tick(missionH, eph.hoursToDate(missionH));   // the surface loop that normally drives the clock is paused here
       globe.step(dt, sunME);
       globe.render();
 
