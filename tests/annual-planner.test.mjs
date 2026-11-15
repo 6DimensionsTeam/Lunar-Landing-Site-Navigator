@@ -25,9 +25,10 @@ for (const needs of [{}, { craterFloor: true, iceNearby: true, continuousComm: t
   test(`every real annual cell preserves the complete original rank entry: ${JSON.stringify(needs)}`, () => {
     const plan = buildAnnualPlan({ data: realData, zones: realZones, needs });
     const pool = candidatePool(realData);
-    assert.equal(plan.rows.length, 19);
-    assert.equal(plan.years.length, 15);
-    assert.equal(plan.rows.reduce((count, row) => count + row.cells.length, 0), 285);
+    const yearCount = realData.sites.stats_years[1] - realData.sites.stats_years[0] + 1;
+    assert.equal(plan.rows.length, pool.length);
+    assert.equal(plan.years.length, yearCount);
+    assert.equal(plan.rows.reduce((count, row) => count + row.cells.length, 0), pool.length * yearCount);
     assert.deepEqual(plan.years, Array.from({ length: realData.sites.stats_years[1] - realData.sites.stats_years[0] + 1 }, (_, i) => realData.sites.stats_years[0] + i));
     for (const summary of plan.yearSummaries) {
       const expected = rankSites(pool, realZones, summary.year, needs);
