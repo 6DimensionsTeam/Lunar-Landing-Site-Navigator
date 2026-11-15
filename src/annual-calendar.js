@@ -283,7 +283,11 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
   function renderDetail(cell) {
     detail.replaceChildren();
     const back = button('ac-back-to-calendar cta2', 'Back to calendar');
-    back.addEventListener('click', () => pick(cell, { focus: true }));
+    back.addEventListener('click', () => {
+      pick(cell, { focus: true });
+      // Keep the sticky year headings below the mobile view switch, too.
+      scroll.scrollIntoView({ block: 'start', inline: 'nearest', behavior: 'instant' });
+    });
     detail.append(back);
     detail.append(node('p', 'ac-kicker', `INSPECT / ${cell.year} / ${cell.site.id}`));
     detail.append(node('h3', 'ac-detail-title', siteName(cell.site)));
