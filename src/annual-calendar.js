@@ -1,6 +1,7 @@
 import { buildAnnualPlan } from './annual-planner.js';
 import { createAnnualMap } from './annual-map.js';
 import { commBar } from './rank.js';
+import { reviewSite } from './advisors.js';
 import './annual-calendar.css';
 
 let instanceCount = 0;
@@ -98,7 +99,15 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
   evidence.append(node('summary', '', 'Why this result'));
   const evidenceBody = node('div', 'ac-evidence-body');
   evidence.append(evidenceBody);
-  detail.append(siteLabel, detailHeading, mainStats, detailNote, evidence);
+  const histSection = node('div', 'ac-hist-section');
+  const boardButton = node('button', 'ac-board-button');
+  boardButton.type = 'button';
+  boardButton.innerHTML = '<b>Advisory Board ›</b><small>Board discussion + historical evidence for this site and year</small>';
+  listen(boardButton, 'click', () => {
+    const cell = selectedCell();
+    if (cell) root.ownerDocument.defaultView.dispatchEvent(new CustomEvent('lln:open-board', { detail: { siteId: cell.site.id, year: cell.year } }));
+  });
+  detail.append(siteLabel, detailHeading, mainStats, detailNote, boardButton, evidence);
   workspace.append(mapRoot, detail);
 
   const timelineSection = node('section', 'ac-timeline-section');
@@ -128,6 +137,9 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
   for (const [state, label] of [['feasible', 'Meets'], ['infeasible', 'Fails'], ['unknown', 'Unknown']]) {
     timelineLegend.append(node('span', `ac-timeline-key ac-${state}`, label));
   }
+  const criteriaNote = node('small', 'cite');
+  criteriaNote.textContent = 'Criteria are your mission requirements from Mission Setup. With none configured, every site passes in every year.';
+  timelineLegend.append(criteriaNote);
   yearSlider.setAttribute('aria-describedby', timelineLegend.id);
   timelineTrack.append(timelineBand, timelinePointer, yearSlider);
   timeline.append(timelineSelection, timelineTrack, timelineLegend);
@@ -158,10 +170,13 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
   method.append(node('p', '', 'The existing ranking uses proxies: a site clearing its Earth-link bar does not guarantee uninterrupted communication; non-rough terrain does not confirm a crater floor; permanent shadow within 25 km does not confirm water ice.'));
   method.append(node('p', '', 'A zero or absent darkness limit disables that filter. Unselected optional requirements impose no constraint. Unknown annual data are never counted as a pass. Catalog-best years consider the full period; the recommendation considers only the planning year onward.'));
   method.append(node('p', '', 'Exploring this map and timeline does not change your mission date or the site selected in the 3D survey.'));
+  const dataSource = node('p', 'cite');
+  dataSource.textContent = 'Data: LOLA horizon profiles (NASA/GSFC LRO, 40 m resolution near pole) · JPL DE421 ephemeris · 3 h steps, 2026–2040. Sun treated as extended source (0.27° radius). Earth visibility includes topocentric parallax.';
+  method.append(dataSource);
   const live = node('p', 'ac-sr');
   live.setAttribute('role', 'status');
   live.setAttribute('aria-live', 'polite');
-  panel.append(header, overview, timelineSection, workspace, comparison, method, live);
+  panel.append(header, overview, timelineSection, workspace, histSection, comparison, method, live);
   shell.append(nav, panel);
   root.append(shell);
   const annualMap = createAnnualMap({ root: mapRoot, data, onSelect: id => {
@@ -463,6 +478,63 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
     }
     if (cell.notes.length) evidenceBody.append(node('p', 'ac-detail-note', cell.notes.join(' · ')));
     evidenceBody.append(node('p', 'ac-detail-note', 'These annual screening proxies do not establish continuous communication, a crater floor, confirmed ice or conditions during your selected stay.'));
+    renderHistorical(cell);
+  }
+  function renderHistorical(cell) {
+    histSection.replaceChildren();
+    let reviews = [];
+    try { reviews = reviewSite(cell.site, { stats: cell.stats }); } catch { return; }
+    if (!reviews.length) return;
+    const curSun = cell.stats?.sun_visible_pct;
+    const curEarth = cell.stats?.earth_visible_pct;
+    const head = node('h4', 'ac-section-title ac-hist-title', `Similar missions · compared with ${siteName(cell.site)} ${cell.year}`);
+    histSection.append(head);
+    for (const r of reviews) {
+      const cond = r.conditions;
+      if (!cond) continue;
+      const item = node('div', 'ac-hist-item');
+      const topRow = node('div', 'ac-hist-head');
+      topRow.append(node('b', 'ac-hist-name', r.mission), node('span', 'ac-hist-year', String(r.year)), node('span', `ac-hist-badge ac-hist-${(cond.outcome || '').toLowerCase()}`, cond.outcome || 'UNKNOWN'));
+      item.append(topRow);
+      if (cond.outcomeNote) item.append(node('p', 'ac-hist-note', cond.outcomeNote));
+      const makeCmpRow = (label, histVal, curVal) => {
+        const row = node('div', 'ac-hist-cmp-row');
+        const lines = node('div', 'ac-hist-cmp-lines');
+        const mLine = node('div', 'ac-hist-cmp-line');
+        const mTrack = node('span', 'ac-hist-cmp-track');
+        const mFill = node('span', 'ac-hist-cmp-fill ac-hist-fill-hist');
+        mFill.style.width = `${histVal}%`;
+        mTrack.append(mFill);
+        mLine.append(node('span', 'ac-hist-cmp-who', 'Mission'), mTrack, node('span', 'ac-hist-cmp-num', `${histVal}%`));
+        lines.append(mLine);
+        if (Number.isFinite(curVal)) {
+          const delta = curVal - histVal;
+          const sLine = node('div', 'ac-hist-cmp-line');
+          const sTrack = node('span', 'ac-hist-cmp-track');
+          const sFill = node('span', 'ac-hist-cmp-fill ac-hist-fill-site');
+          sFill.style.width = `${Math.min(curVal, 100)}%`;
+          sTrack.append(sFill);
+          const dSign = delta >= 0 ? '+' : '';
+          const numEl = node('span', `ac-hist-cmp-num ${delta >= 0 ? 'ac-hist-better' : 'ac-hist-worse'}`, `${curVal.toFixed(0)}%`);
+          numEl.append(node('small', 'ac-hist-delta', ` ${dSign}${delta.toFixed(0)}`));
+          sLine.append(node('span', 'ac-hist-cmp-who', 'Your site'), sTrack, numEl);
+          lines.append(sLine);
+        }
+        row.append(node('span', 'ac-hist-cmp-lbl', label), lines);
+        return row;
+      };
+      const cmpWrap = node('div', 'ac-hist-cmp-wrap');
+      if (Number.isFinite(cond.sunPct)) cmpWrap.append(makeCmpRow('Sun', cond.sunPct, curSun));
+      if (Number.isFinite(cond.earthPct)) {
+        cmpWrap.append(makeCmpRow('Earth', cond.earthPct, curEarth));
+      } else {
+        const naRow = node('div', 'ac-hist-cmp-row');
+        naRow.append(node('span', 'ac-hist-cmp-lbl', 'Earth'), node('span', 'ac-hist-cmp-na', 'Relay only'));
+        cmpWrap.append(naRow);
+      }
+      item.append(cmpWrap);
+      histSection.append(item);
+    }
   }
   function refresh() {
     if (destroyed) return;

@@ -18,6 +18,9 @@ import { createGlobe } from './scene/globe.js';
 import { rankSites, statsFor, explain, candidatePool, compareSites } from './rank.js';
 import { buildWorlds, runWorlds, summarise as worldsSummarise } from './worlds.js';
 import { reviewSite } from './advisors.js';
+import { mountBoard, showBoard } from './board.js';
+import { installRouter, routeReady, resumeStage, startPath } from './router.js';
+import { loadSession, saveSession } from './session.js';
 
 // Home-screen epoch: 2028-09-29 12:00 UTC. Seen from Shackleton, Earth (a 15%-lit crescent) and the Sun both stand only 1.7–3° above the horizon,
 // about 45° apart in azimuth, straddling the south polar ridge. The clock then runs forward at real speed.
@@ -201,6 +204,10 @@ async function boot() {
     hud.bind('crater-data', `${(crater.radius * 2).toFixed(1)} km across · ${crater.depth.toFixed(1)} km deep · floor in permanent shadow`);
     return `${sites.sites.length} sites · ${data.sites.azimuth_step_deg}° azimuth step`;
   });
+
+  // Mount the advisory board overlay (runs once; the section already exists in the DOM).
+  mountBoard(document.getElementById('board'));
+  installRouter();
 
   // ---- Per-frame scene sync ----
   const KEY_EL = THREE.MathUtils.degToRad(16);          // cinematic key light: the Sun's azimuth, lifted to about 16°
@@ -671,7 +678,7 @@ async function boot() {
     if (nFr++ % 6 === 0) {
       const b = (90 - deg(st.hdg)) % 360;
       hud.setRover({
-        v: st.v, bearing: (b + 360) % 360, slope: st.slope, pitch: st.pitch, mode: rover.MODE_EN[st.mode],
+        v: st.v / Math.max(1, clock.rate), bearing: (b + 360) % 360, slope: st.slope, pitch: st.pitch, mode: rover.MODE_EN[st.mode],
         odo: st.odo, dist: Math.hypot(st.x, st.y), sunEl: deg(Math.asin(THREE.MathUtils.clamp(st.sunUp, -1, 1))),
         lit: st.lit, power: st.power, warn: st.warn, rockBlocked: st.rockBlocked, hlOn: st.hlOn, jumped,
         pan: deg(rover.mast.pan), tilt: deg(rover.mast.tilt), range: st.range,
@@ -712,6 +719,13 @@ async function boot() {
   }
   function enterRover() {
     if (mode !== 'explore') return;
+    const here = surfaceTarget();
+    const loc = document.querySelector('#rover .loc');
+    if (here && loc) {
+      loc.querySelector('b').textContent = here.en;
+      loc.querySelector('span').textContent = `LANDING SITE ${here.id}`;
+      document.getElementById('rback').firstChild.textContent = 'Back to site ';
+    }
     const a = { pos: camera.position.clone(), quat: camera.quaternion.clone(), fov: camera.fov };
     rover.setActive(true);
     rover.sync(camera);
@@ -912,11 +926,28 @@ async function boot() {
   const toggleNav = () => { hud.navcam(!hud.navcam()); pipRect = null; };
   hud.onNavcam(toggleNav);
   hud.onCardClose(() => { sel = null; hud.closeCard(); });
-  // Jump to the lowest Sun of the rover's next night (to see the headlights); press again to go back to the previous time
+  // Jump to the lowest Sun of the rover's next night; each click advances to the following night
   hud.onTime(() => {
-    if (jumped) { setTime(HOME_EPOCH_H, 1); jumped = false; return; }
     const A = sites.byId('A'), h0 = nowH();
-    const set = sites.look(A, h0).sun.lit ? sites.nextChange(A, h0, 'sun') : h0;
+    // If currently dark, skip to the next sunrise first so we always land on the NEXT night, not the current one
+    let searchFrom = h0;
+    if (!sites.look(A, h0).sun.lit) {
+      const nextRise = sites.nextChange(A, h0 + 1e-3, 'sun');
+      if (nextRise != null) {
+        searchFrom = nextRise + 1e-3;
+      } else {
+        // No future sunrise — permanent polar darkness; find the sun minimum from now
+        let best = h0, low = Infinity;
+        for (let i = 0; i < 48; i++) {
+          const h = h0 + i, s = sites.look(A, h).sun;
+          if (s.el - s.hor < low) { low = s.el - s.hor; best = h; }
+        }
+        setTime(best, 1);
+        document.querySelectorAll('.clock-rate').forEach(b => { b.textContent = ''; });
+        return;
+      }
+    }
+    const set = sites.nextChange(A, searchFrom, 'sun');
     if (set == null) return;
     const rise = sites.nextChange(A, set + 1e-3, 'sun') ?? set + 12;
     let best = set, low = Infinity;
@@ -925,7 +956,7 @@ async function boot() {
       if (s.el - s.hor < low) { low = s.el - s.hor; best = h; }
     }
     setTime(best, 1);
-    jumped = true;
+    document.querySelectorAll('.clock-rate').forEach(b => { b.textContent = ''; });
   });
   const DRIVE_KEYS = new Set(['KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space']);
   window.addEventListener('keydown', (e) => {
@@ -1341,6 +1372,7 @@ async function boot() {
     let chosenSite = null;    // the site the user committed to, kept for hand-off to the analysis
     let missionNeeds = {};    // P2's requirements, applied when they arrive
     let lastYear = null;      // the arrival year the figures are being read for
+    let lastRanked = [];      // most recent rankSites() output, passed to the board panel
     const siteListYear = document.getElementById('sel-site-year');
     function buildSiteList(year) {
       siteListHost.textContent = '';
@@ -1356,6 +1388,7 @@ async function boot() {
       // list is ordered by how well each site meets the mission as configured, and a site that
       // fails one is moved below every site that does.
       const ranked = rankSites(pool, zones, year, missionNeeds);
+      lastRanked = ranked;
       // The pool is nineteen places now; listing all of them under a three-line-row budget
       // would either overflow the panel or squeeze every row to unreadable. The list shows the
       // ones worth acting on and says how many were left behind, rather than silently cutting.
@@ -1387,7 +1420,10 @@ async function boot() {
         // They are buttons now in everything but tag name -- focusable, announced, and driven by
         // Enter or Space, with the same two-step behaviour the pointer gets.
         const choose = () => {
-          if (framedSite === s.id && !globe.flying) descendTo(s, entry);
+          if (framedSite === s.id && !globe.flying) {
+            const boardYear = lastYear;
+            showBoard({ site: s, entry, year: boardYear, ranked: lastRanked, needs: missionNeeds, onProceed: () => descendTo(s, entry, boardYear) });
+          }
           else { framedSite = s.id; globe.flyToSite(s); }
           for (const r of siteListHost.children) {
             const on = r === row;
@@ -1652,6 +1688,7 @@ async function boot() {
       // read back out as 2028's numbers under a 2028 label, both wrong for what was actually
       // being shown.
       chosenSite = { site, entry, year, needs: missionNeeds };
+      saveSession({ siteId: site.id, siteYear: year });
       mission.publishSite(chosenSite);
       surfaceHud.set(chosenSite);
       chosenSiteRef = () => chosenSite;
@@ -1700,6 +1737,69 @@ async function boot() {
     // delivery is needed here the way onMission/onSite provide it.
     mission.onVisit(descendTo);
 
+    // The board is reachable from anywhere: the floating launcher, the calendar's "Ask the
+    // advisory board" button (lln:open-board event), or the #board URL. With no site given it
+    // reviews the committed or framed site, else the top-ranked one.
+    // The board reviews the arrival date the user typed on the first screen, as soon as it is
+    // typed -- before the launch sequence has run -- and the launcher only appears once there
+    // is a date to review.
+    let pickedDate = null;
+    const boardYear = () => lastYear ?? (pickedDate ? THREE.MathUtils.clamp(pickedDate.year, eph.startYear, eph.endYear) : null);
+    function openBoardFor(siteId, year = boardYear()) {
+      const ranked = rankSites(pool, zones, year, missionNeeds);
+      lastRanked = ranked;
+      const want = siteId ?? chosenSite?.site.id ?? framedSite;
+      const entry = ranked.find((e) => e.site.id === want) || ranked[0];
+      if (!entry) return;
+      const [y, m, d] = (pickedDate?.iso || '').split('-');
+      const dateLabel = pickedDate && Number(y) === year ? `${m}/${d}/${y}` : null;
+      showBoard({ site: entry.site, entry, year, dateLabel, ranked, needs: missionNeeds, onProceed: () => descendTo(entry.site, entry, year) });
+      saveSession({ boardSite: entry.site.id, boardYear: year });
+    }
+
+    // A refresh on a page past the launch: the mission flow has already been rebuilt from the
+    // saved session, so this reopens the screen the address names.
+    let resumed = false;
+    function resumeAfterMission() {
+      if (resumed) return;
+      resumed = true;
+      if (resumeStage() !== 'done') return;
+      const path = startPath();
+      const saved = loadSession();
+      const finish = () => setTimeout(routeReady, 400);
+      setTimeout(() => {
+        if (path === '/site-survey' || path === '/robustness') {
+          document.querySelector('#select .ac-view-button')?.click();
+          if (path === '/robustness') setTimeout(() => { document.getElementById('sel-trial')?.click(); finish(); }, 500);
+          else finish();
+        } else if (path === '/advisory-board') {
+          openBoardFor(saved.boardSite ?? null, saved.boardYear ?? boardYear());
+          finish();
+        } else if (['/surface', '/rover', '/compare', '/relay-station'].includes(path) && saved.siteId) {
+          const year = saved.siteYear ?? lastYear;
+          const entry = rankSites(pool, zones, year, missionNeeds).find((e) => e.site.id === saved.siteId);
+          if (!entry) { finish(); return; }
+          descendTo(entry.site, entry, year);
+          const wait = setInterval(() => {
+            if (mode !== 'explore') return;
+            clearInterval(wait);
+            if (path === '/rover') enterRover();
+            if (path === '/compare') document.getElementById('tocompare')?.click();
+            finish();
+          }, 200);
+        } else finish();
+      }, 600);
+    }
+    const boardLaunch = document.getElementById('board-launch');
+    window.addEventListener('lln:arrival-date', (ev) => {
+      pickedDate = ev.detail;
+      boardLaunch.hidden = false;
+    });
+    window.addEventListener('lln:open-board', (ev) => openBoardFor(ev.detail?.siteId, ev.detail?.year ?? boardYear()));
+    boardLaunch.addEventListener('click', () => openBoardFor(null));
+    if (location.hash === '#board') openBoardFor(null);
+    window.addEventListener('hashchange', () => { if (location.hash === '#board') openBoardFor(null); });
+
     // The arrival time is what makes the site figures specific rather than an average, so it
     // is read here rather than ignored. Clamped into the ephemeris range: a date control that
     // let the user off the end of it would otherwise index a year that has no entry.
@@ -1716,6 +1816,7 @@ async function boot() {
       }
       buildSiteList(lastYear);
       show();
+      resumeAfterMission();
     });
     // A way in that does not depend on P2. The mission flow is the intended route here --
     // it is what supplies the arrival date the figures key off -- but the zone map stands on
