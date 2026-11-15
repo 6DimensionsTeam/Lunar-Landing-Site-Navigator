@@ -9,3 +9,5 @@ shots/
 
 # Local dev-server config for the preview tooling, not project content
 .claude/
+.vercel
+.env*

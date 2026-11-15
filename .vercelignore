@@ -1,0 +1,9 @@
+node_modules
+dist
+shots
+tools
+docs
+tests
+data/raw
+.claude
+*.patch
