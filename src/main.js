@@ -372,6 +372,13 @@ async function boot() {
     hud.set({ sun: v.sun, earth: v.earth, next });
   }
 
+  // Set by the P1 block when a site is committed on the map; read here so the default-entry
+  // path can tell whether a real choice has already been made.
+  let chosenSiteRef = () => null;
+  // The same evaluation the map's list rows carry, so a default entry shows a verdict computed
+  // the same way rather than a second opinion.
+  const defaultEntryFor = (site) => rankSites([site], zones, null, {})[0];
+
   // ---- Surface site readout: whatever site the camera is standing at ----
   // Set when a site is committed on the zone map (descendTo), refreshed on the 400 ms timer while
   // the free camera is up. Every figure is a measurement: the live sun/Earth state is the same
@@ -725,11 +732,23 @@ async function boot() {
   // makes going "home" a dead end -- the mission flow skips that screen entirely, so it would
   // leave them on a screen with nothing to click that continues the mission.
   const backFromSurface = () => { if (cameFromMap) returnToMap(); else go('home'); };
-  hud.onEnter(() => go('explore'));
+  // Entering the surface outside the map flow (Enter Navigation, Descend to Site A) still lands
+  // at Shackleton Rim, because that is where rig.landing() puts the camera with no site given.
+  // Without this the readout sat on placeholder dashes and the header named a site the view was
+  // not at: the panels describe wherever the camera actually stands, so they are filled for the
+  // default landing site too, not only for a site committed on the map.
+  const enterSurface = () => {
+    if (!chosenSiteRef()) {
+      const a = sites.byId('A');
+      if (a) surfaceHud.set({ site: a, entry: defaultEntryFor(a), year: null, needs: {} });
+    }
+    go('explore');
+  };
+  hud.onEnter(enterSurface);
   hud.onBack(backFromSurface);
   hud.onOrbit(() => { refreshOrbit(); go('orbit'); });
   hud.onOrbitBack(() => go('home'));
-  hud.onDescend(() => go('explore'));
+  hud.onDescend(enterSurface);
   hud.onRover(() => enterRover());
   hud.onRoverBack(() => leaveRover());
   hud.onLights(() => rover.toggleLights());
@@ -1425,6 +1444,7 @@ async function boot() {
       chosenSite = { site, entry, year: lastYear, needs: missionNeeds };
       mission.publishSite(chosenSite);
       surfaceHud.set(chosenSite);
+      chosenSiteRef = () => chosenSite;
       // The rover belongs at the site the user committed to, not permanently at point A.
       rover.moveTo(sites.byId(site.id) || site);
       const m = latLonToMap(R, site.lat, site.lon);
