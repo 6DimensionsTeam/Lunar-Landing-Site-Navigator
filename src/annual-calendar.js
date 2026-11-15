@@ -140,7 +140,8 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
     mapButton.setAttribute('aria-pressed', 'true');
     calendarButton.setAttribute('aria-pressed', 'false');
     if (restoreFocus && !concealed()) {
-      const target = returnFocus?.isConnected && root.contains(returnFocus) && !returnFocus.inert ? returnFocus : calendarButton;
+      const target = returnFocus?.isConnected && root.contains(returnFocus) && !panel.contains(returnFocus) && !returnFocus.inert
+        ? returnFocus : calendarButton;
       target.focus({ preventScroll: true });
     }
     returnFocus = null;
