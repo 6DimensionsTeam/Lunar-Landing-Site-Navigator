@@ -1095,6 +1095,7 @@ body {
 #boot-log li.err { white-space: normal; }
 #boot-log li.err .msg,
 #boot-log li.err .st { color: var(--red-hi); }
+.boot-retry { margin-top: 16px; }
 .boot-track { margin-top: 16px; height: 2px; background: rgba(242, 244, 245, 0.1); }
 #boot-bar {
   display: block;

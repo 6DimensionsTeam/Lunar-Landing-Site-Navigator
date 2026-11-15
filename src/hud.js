@@ -85,6 +85,14 @@ function createBoot(total) {
     ui(() => {
       h.li.classList.add('err');
       h.st.textContent = 'ERR';
+      // A failed load has no later step to hand off to and nothing here will self-heal --
+      // the only way out is to try again, so offer that instead of leaving the screen stuck.
+      const retry = document.createElement('button');
+      retry.type = 'button';
+      retry.className = 'boot-retry mini';
+      retry.textContent = 'Retry';
+      retry.addEventListener('click', () => location.reload());
+      root.querySelector('.boot-box').appendChild(retry);
     });
   }
   async function finish() {
