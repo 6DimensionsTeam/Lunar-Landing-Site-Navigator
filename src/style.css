@@ -1185,6 +1185,15 @@ body {
 #boot-log li { display: flex; gap: 12px; white-space: nowrap; animation: logIn 0.25s both; }
 #boot-log .ts { flex: 0 0 3.4em; color: var(--dim); }
 #boot-log .msg { overflow: hidden; text-overflow: ellipsis; color: var(--fg); }
+/* Narrow screens cannot hold the timestamp, the message and the result on one line: the message
+   was being clipped mid-word ("Decode inner terrain, LOLA 120..."). Drop the timestamp, which is
+   the least useful of the three while start-up is still running, and let the message wrap. */
+@media (max-width: 560px) {
+  #boot-log li { white-space: normal; gap: 8px; align-items: baseline; }
+  #boot-log .ts { display: none; }
+  #boot-log .msg { overflow: visible; text-overflow: clip; }
+  .boot-box { width: min(600px, 92vw); }
+}
 #boot-log .dt { margin-left: auto; color: var(--dim); }
 #boot-log .st { margin-left: auto; min-width: 3ch; text-align: right; font-weight: 700; color: var(--dim); }
 #boot-log .dt + .st { margin-left: 0; }

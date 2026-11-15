@@ -5,6 +5,19 @@ Every finding below was reproduced in the running app; the ones carried over fro
 alone are marked **[code]**. Severity is about what a first-time visitor experiences, not about
 code quality.
 
+**Status at `e76b823`** — three findings have since been fixed in the main branch, by someone
+working in parallel with this audit:
+
+| Finding | Fixed in | How |
+|---|---|---|
+| 6.3 surface entered without a committed site (ten dashes) | `e76b823` | both entry paths now fill the readout for the site the camera is actually at |
+| 2.10 relay `Descend to Site A` landing on the wrong site | `caa7ce3` | relay HUD now reports the measured horizon, not a fixed site distance |
+| 2.11 zone tint washing the surface at close range | `caa7ce3` | tint strength now follows how many 480 m cells the view resolves |
+| 5 typography: 49 font sizes, floor of 7 px | in the tree | root size `clamp(12px,0.78vw,15px)` never reached its curve, so it sat on the 12 px floor at every laptop width; now `clamp(14px,0.95vw,17px)`, and 108 hard-coded sizes in `mission.js` were raised to an 11–17 step scale. Measured after: floor 11 px, 12 distinct sizes |
+| 6.2 narrow-screen LAUNCH pushed out of view | in the tree | `@media(max-width:900px)` cancelled the button's sticky position |
+
+Everything else below is still present at that commit.
+
 The question behind every screen was the same four things: **where am I, what is the one thing
 I should do here, what did my last choice cause, and what should I be unsure about.** Anything
 that does not serve one of those four is noise.
@@ -180,6 +193,12 @@ Contradiction:
 
 ### 2.5 05 Site map
 
+*Status at `f7212cc`: the rows are now focusable, announced, and driven by Enter or Space. The
+two-click gesture is described in each row's `aria-label` (`src/main.js:1267`) — **but only
+there**. The visible instruction above the map still reads `Drag to turn the body, scroll to
+come closer.` (`index.html:336`), so a sighted visitor is still not told the second click exists.
+The panel darkness and the 9.5 px row type were addressed with the type scale.*
+
 Missing:
 - Two clicks are required to land: the first frames the site, the second commits. Nothing on
   screen says this. The only instruction is `Drag to turn the body, scroll to come closer.`
@@ -198,6 +217,9 @@ Row hierarchy:
   smaller than the credits at the bottom of the panel.
 
 ### 2.6 Site detail (surface view)
+
+*Status at `f7212cc`: filled on both entry paths, the zone tint no longer washes the ground at
+this camera distance, and the relay distance is labelled for what it measures.*
 
 This screen was empty at `aeffc63` and now carries data. It overshot.
 
@@ -227,6 +249,9 @@ Too much / mis-scaled:
 
 ### 2.7 Analysis
 
+*Status at `f7212cc`: **fixed**. The heading now branches on whether any requirement was asked
+for, and verdicts are only produced for requirements that were set.*
+
 This is the terminal screen and the weakest.
 
 Contradiction, reproduced:
@@ -245,6 +270,9 @@ the renderer bypasses both. This is the single most damaging defect for a judgin
 conclusion-shaped statement with no premise.
 
 ### 2.8 Two different statistics are labelled the same way
+
+*Status at `f7212cc`: **fixed**. Each aggregation now says which it is on all three screens, and
+the two endurance figures carry a `worst` suffix.*
 
 Measured from `src/data/sites.json`:
 
@@ -274,6 +302,23 @@ At Malapert the horizon in that azimuth is below 0, so the disk is still mostly 
 centre at -0.33 deg. The verdict is right. The screen never shows the horizon elevation, so the
 only numbers the visitor can see contradict each other.
 
+**Partly addressed, and the fix created a second, smaller version of the same problem.** A
+`Sky clearance` row and an `Open azimuths` row were added under `Endurance & Hazard`
+(`index.html:137-138`, bound at `src/main.js:462-476`). The figures are read straight off the
+measured horizon profile and the credit explicitly refuses to call them coverage — as honest as
+this product gets.
+
+But two things are still wrong for the reader:
+
+- They are **panoramic**, not the one azimuth the contradiction is about. `Sky clearance` reports
+  the worst azimuth across the whole horizon; `Sun now` is about the Sun's azimuth right now.
+  Those are different numbers, so the pair still does not explain itself.
+- They were filed under `Endurance & Hazard`, two panels below the `Sun now / SUNLIT` row they
+  would resolve. A visitor has no reason to connect them.
+
+Smallest edit: on the `Sun now` row, show the horizon elevation for the Sun's current azimuth,
+and leave the panoramic pair where it is.
+
 ### 2.10 Relay station — the best-built screen, with two broken handoffs
 
 This screen is the strongest in the product: one clear subject, a label per assembly, parameters
@@ -293,6 +338,9 @@ with a source. It is also untouched by the mission and carries two defects at it
   on the transfer screen, so the visitor meets two apsis vocabularies with one explained nowhere.
 
 ### 2.11 The zone tint turns the surface view into a colour wash
+
+*Status at `f7212cc`: **fixed**. Tint strength is now derived from how many 480 m cells the view
+spans, so it fades out exactly when the data stops being resolvable.*
 
 `src/main.js:332` sets the zone-tint strength per mode:
 
@@ -337,6 +385,11 @@ those five part names are never expanded anywhere in the product.
 The HUD is laid out with absolute positions and fixed panel widths, so it does not degrade
 gracefully. Reproduced on the site map:
 
+Two failures in this section are worse than overflow, because they remove a decision or the data
+behind one rather than moving it. Both are written up as claimable items in section 11: **A1**,
+the candidate panel off the left edge at phone width, and **A3**, the entire surface readout
+switched off below 900 px.
+
 **900 x 900 (square)**
 
 - The zone legend panel overlaps the candidate panel; the legend's right edge is covered.
@@ -351,9 +404,17 @@ gracefully. Reproduced on the site map:
 - The top bar is cropped on the right; the clock is half cut.
 - The left legend is pushed off-screen, leaving a 60 px sliver with text broken one character
   per line (`AR`, `SI`, `un`, `ark`, `ve`).
-- **The candidate list disappears entirely.** There is no way to choose a site at this size.
+- **The candidate panel is pushed off the left edge.** Measured: the panel is 246 px wide at
+  `left: -168px`, so 78 px of it is visible and the rest is outside the viewport. The
+  `Robustness Trial` button is at the same `x` and at `top: 920px` in an 844 px viewport, so it
+  is off two edges at once.
 - The scale ruler labels read `180 / 120 / 77 / 38 / 19 / 58 / 96 / 130`, which is not in order.
-- `Fly to Pole`, `Whole Moon` and `Back` are all unreachable.
+
+Root cause: the dock is still a multi-column grid at this width. `@media (max-width: 720px)` in
+`src/style.css` re-lays the dock as `grid-template-columns: 1fr` with
+`grid-template-areas: 'live' 'cta'`, but the panel keeps its desktop width and is positioned
+outside the first column, so it is laid out at a negative `x` rather than removed from flow.
+It is not `display: none`; it is simply placed where it cannot be reached.
 
 If the entry is judged on a laptop only this may never be seen. If a judge opens it on a phone
 or in a narrow window, the decisive screen of the product is unusable.
@@ -509,27 +570,41 @@ On disk the data and models total 21.4 MB. The build inlines everything because
 1.76x inflation over the raw assets, 1.33x of which is base64 by construction. On a slow
 connection or from a phone this is a 40 MB download before anything renders.
 
-Runtime:
+Runtime, measured on a MacBook at 1440x900 with canvas 2039x1274 (DPR 2), surface view:
 
-- 120 Hz display, uncapped. Median frame 8.3 ms, which is full rate for a 120 Hz panel. **There
-  is no frame cap**, so the scene renders 120 times a second with three shadow maps and a bloom
-  pass. On a 120 Hz laptop this is double the work of 60 fps for no visual gain, and it is what
-  makes the fans spin.
-- Sustained frame pacing on the surface view: fps 64.5, p50 8.4 ms, **p95 60 ms, worst 177 ms**,
-  18 frames over 33 ms in a 4-second window.
-- During the 7 s landing flight the frame rate holds at the display rate (120 fps, worst frame
-  9.4 ms), so the flight itself is smooth. The stutter is not in the flight.
-- JS heap after the full flow: **505 MB**. This is the number to watch on a mid-range laptop or a
-  phone; 500 MB of live JS heap plus a 2039x1274 framebuffer and three shadow maps is close to
-  what a mobile browser will tolerate before a tab is discarded.
-
-The boot sequence itself is fast and should not be changed: the log's own timestamps put
-`SYSTEMS NOMINAL` at **0.88 s** after script start, with decode, terrain build, shadow allocation
-and site loading all under 0.9 s. The cost of this product is the payload, not the start-up.
-
-One inconsistency visible in that same log: it reports `19 sites - 0.5 deg azimuth step` while the
-mission intro reports `6 CANDIDATES`. Both are true of different sets (all sites versus the pool
-being offered), and the product never says which is which.
+- **The loop was uncapped until `c3ecee0`.** On a 120 Hz panel it rendered three shadow maps
+  and a bloom chain 120 times a second for no visual gain, since the Sun moves half a degree an
+  hour. It is now capped at 60 except during camera flights.
+- **After the cap the surface view still runs at 49.6 fps, not 60.** Over six seconds: p50
+  17.4 ms, p95 47.1 ms, p99 52.8 ms, worst 54.8 ms, 46 frames over 33 ms. The p50 rise from
+  8.4 to 17.4 ms is the intended effect of the cap; the failure is that a sixth of frames overrun
+  a 16.7 ms budget by three times.
+- **It is not JavaScript.** A `PerformanceObserver` for `longtask` reports **zero long tasks and
+  zero milliseconds total** across that window. The cost is in rendering.
+- `sites.nextChange()` was the obvious suspect and is not the cause: measured at **0.22 ms** per
+  call. It runs from a 400 ms timer, so its duty cycle is under 0.1 percent.
+- The per-frame pixel load is the lever. `PIXEL_BUDGET = 2.6e6` (`src/main.js:27`) clamps the
+  canvas to 2.6M pixels; the CSS box at this size is 1.3M, so the renderer draws twice the
+  pixels the display needs before any of the shadow or bloom passes. Dropping the budget toward
+  1.9e6 is a one-constant experiment.
+- The same clamp has no harmful floor. Computed for each size: a 4K display at DPR 2 asks for
+  0.56, `Math.max(0.6, ...)` lifts it to 0.6, and the canvas is 2.99M pixels — **15 percent over
+  budget, not under it**. So the floor makes large screens slightly sharper and slightly slower,
+  never blurrier. The softness at 4K comes from the budget itself, not the clamp. **Corrected in
+  this pass: an earlier draft of this note said the floor left 4K blurry and that was wrong.**
+- The budget is only fully used between about 1080p and 1440p. At 1440x900, 1080p and 1440p the
+  ratio lands exactly on 2.60M. A phone at DPR 3 is clamped by `Math.min(devicePixelRatio, 1.5)`
+  to 1.5, giving a 585x1266 canvas for a 1170x2532 screen — **half resolution, so a phone user is
+  looking at a soft image**. That canvas is 0.74M pixels, 28 percent of the budget.
+- No frame time has been measured on a phone, so the 28 percent figure says nothing about how
+  smooth it is there. A phone GPU's fill rate and bandwidth are an order of magnitude below a
+  laptop's, so fewer pixels does not imply more frames. **An earlier draft of this note drew that
+  conclusion; it was not supported and has been removed.**
+- JS heap after the full flow: **505 MB**.
+- Boot itself is fast and should not be touched: the log's own timestamps put `SYSTEMS NOMINAL`
+  at **0.88 s** after script start, with decode, terrain build, shadow allocation and site
+  loading all under 0.9 s. The cost of this product is the payload and the frame, not the
+  start-up.
 
 ---
 
@@ -585,3 +660,129 @@ Two things this table makes obvious:
 If the strip is added, this is the minimum a shared mission bar needs to hold: the arrival date,
 the stay length, the site (once chosen), and which of the four requirements were asked for. Every
 one of those is already in `mission.cfg` and `mission.site`; nothing new has to be computed.
+
+---
+
+## 9. Robustness Trial (`#worlds`) — audited separately
+
+Added after the main audit, so it did not go through the same walk-through. Reviewed statically
+plus one run. It is the best-built screen in the product on the criteria this report uses.
+
+What is right:
+
+- **The keyboard path is complete.** Three focusable controls (`Back`, `Replay`, `Skip to
+  result`), all real `<button>` elements. Nothing forces a mouse.
+- **The 100-cell grid is `role="img"` with an `aria-label`** (`index.html`). That is the correct
+  choice: the grid is one picture, and exposing 100 cells to a screen reader would bury the
+  answer. The answer is in the survival counts beside it, which are text.
+- **Escape is layered correctly.** The trial takes Escape before the zone map does, with a comment
+  explaining why (`src/main.js:811`), and `close()` only hides its own screen, so Back and Escape
+  do the same thing.
+- **It does not overclaim.** The credit line states counts over a named set and explicitly
+  refuses to call them probabilities. A test rejects the words *likely*, *probability*, *chance*,
+  *odds* and *expected* in the summary, which is the strictest data-honesty guard in the repo.
+
+One defect:
+
+- **The entry button does not say what it will do.** `#sel-trial` reads `Robustness Trial /
+  100 REQUIREMENT SETS` and sits in the CTA stack between `Whole Moon` and the map, with no
+  indication that it is the one control on the screen that answers a different question than
+  "which site". A visitor who has not read the trial's own explanation cannot tell whether it
+  replaces their selection, adds to it, or is a game. It neither replaces nor adds — it is a
+  read-only view of the same pool — and nothing on the site map says so.
+
+Two observations that are not defects but are worth deciding deliberately:
+
+- The trial is reachable from the site map but the flow never suggests it. Given that the
+  contrast it draws (Malapert wins on score, Shackleton wins on survival) is the most interesting
+  result in the product, offering it only as a third CTA undersells it.
+- It is the only screen in the product that states its own epistemic limits in the first
+  paragraph. The other screens would read better if they did the same, in one sentence.
+
+---
+
+## 10. Status after the parallel fixes
+
+Verified against the tree, not against commit messages.
+
+| Finding | State | Evidence |
+|---|---|---|
+| 6.3 surface entered without a committed site | **fixed** `e76b823` | `surfaceHud.set()` now has two call sites (`src/main.js:762` fallback, `:1488` map flow) |
+| 6a rover fixed to site A | **fixed** `69b38dd` | `rover.moveTo(site)` at `src/main.js:1493`, with the 120 m terrain fallback past the hero tile explained at `src/scene/rover.js:167` |
+| 2.11 zone tint wash | **fixed** `caa7ce3` | `zoneFade()` derives strength from how many 480 m cells the view spans (`src/main.js:341`), and the legend hides when `zoneFade() <= 0.05` (`:743`) |
+| 2.10 relay `Descend to Site A` landing on the wrong site | **fixed** `f7212cc` | `surfaceTarget()` is now the single source for camera, panels, rover and the button label; measured landing differs from a map descent by 0.0016 scene units |
+| 2.10 relay distance mislabelled | **fixed** `caa7ce3` | relay HUD now reports measured horizon clearance instead of a fixed crater distance |
+| 5 typography | **fixed in tree** | root `clamp(14px,0.95vw,17px)`; `mission.js` hard-coded sizes raised to an 11-17 scale; measured floor 11 px, 12 distinct sizes |
+| 6.2 narrow-screen LAUNCH hidden | **fixed in tree** | the `max-width:900px` override no longer cancels the CTA's sticky position |
+| 8.1 `Suitable as configured` with no requirements | **fixed** `c3ecee0` | `src/main.js:1631` now branches on `asked`; `rank.js:109-115` push verdicts only for requirements that were set |
+| 2.8 mean vs maximum labelled alike | **fixed** `c3ecee0` | each field now says which it is; worst-case rows carry a `worst` suffix (`rank.js:112`) |
+| 6.1 candidate list has no keyboard path | **fixed** `c3ecee0` | rows are `tabIndex=0`, `role="button"`, Enter/Space handled (`src/main.js:1241-1250`) |
+| 6.5 no frame cap on a 120 Hz display | **fixed** `c3ecee0` | loop budget is `1000/60 - 1` except during flights (`src/main.js:725`) |
+| 6.3 impossible mission allowed to launch without comment | **fixed** `5a897b4` | the screen now names the shortest night in the catalog and says the mission cannot be met as configured. Deliberately a warning, not a block: asking what an impossible limit looks like is a legitimate use of a diagnostic tool |
+| 6.3 the feedback line read as counting every site | **fixed** `5a897b4` | now `N / 4 NASA regions within this darkness limit`; the two data-selected points were never in the NASA region catalog, so widening the count to 6 would have been wrong |
+| 4 phone width: candidate panel off the left edge | **open** | 246 px panel at `left: -168px`; site names never render inside the viewport, so the one decision cannot be made |
+| 4 phone width: boot log clipped mid-word | **fixed in tree** | `#boot-log` now wraps below 560 px and drops the timestamp instead of ellipsising the message |
+| 5 eleven declarations still at 10 px in the narrow media queries | **fixed in tree** | the `max-width:650px`, `max-width:340px` and `max-height:520px` blocks carried the smallest type in the product; all raised to 11 px, and the floor is now genuinely 11 everywhere |
+| 6.3 dark limit has no upper bound | **open** | `1e9` is still accepted and reports `4 / 4`; see A2 in section 11. The impossible-mission case itself is now warned about rather than blocked, which is the right call for a diagnostic tool |
+
+---
+
+## 11. Claimable list
+
+Every line is one change with a location, the observed behaviour, and the smallest edit that
+fixes it. Grouped by owner as agreed: the mission-framework author takes the P2 flow, the site
+selection author takes the map and its data, and the analysis author takes the end screen.
+
+### Open
+
+**A1 - Phone width: the candidate panel is unreachable.** *Claimed by the site-selection author.*
+`src/style.css`, the `@media (max-width: 720px)` dock block. The dock declares only two grid
+areas, `'live' 'cta'`, while `.legend` asks for `grid-area: sites`; the grid grows an implicit
+column and the panel lands at `x: -168.09, y: 370.24` in a 390 wide viewport, 246 px wide, so 78 px
+is visible. The site names never render inside the viewport. Smallest edit: declare `sites` in
+the narrow grid template, or set the panel to `grid-area: auto` below 720 px.
+
+**A2 - Darkness limit has no upper bound.** *Owner: mission framework.*
+`src/mission.js`, the config validator. `1e9` passes and reports `4 / 4`. No other input can make
+a mission unlaunchable now, so this is the last gap in that form. Smallest edit: clamp the
+accepted range to something the data can speak to (the catalog's longest night, 318 h, plus a
+margin) and say so in the field note.
+
+**A3 - The surface readout is switched off below 900 px.** *Claimed by the site-selection
+author.* More severe than A1, and the opposite kind of defect: not an overflow, an explicit
+`display: none`.
+
+`src/style.css:1391`:
+
+```css
+@media (max-width: 900px) { .ex-dock { display: none; } }
+```
+
+`.ex-dock` holds the four panels the surface view was built to answer the site choice with —
+position and slope, live Sun and Earth state, endurance and hazard, ground classes — and
+`#ex-advisors`, the reserved slot for the flight-history review. Below 900 px all of it is gone,
+leaving only the site name in the top bar. A visitor on a phone, or on a laptop with the window
+split, sees a 3D view of the ground and **no measurement at all**.
+
+The 900 px breakpoint is the widest in the product (the others are 720, 760, 650, 560, 340), so
+this hides data in cases that are not mobile at all. Smallest edit: below 900 px, keep the dock
+and let it scroll or collapse to a single column, rather than removing it.
+
+### Confirmed, decided not to fix
+
+**B1 - `#worlds` is not offered anywhere in the main flow.** Read-only side branch; forcing it
+into the site-selection step would make the one real decision a three-way fork. Revisit after the
+main line has one primary control per screen.
+
+**B2 - 4K screens render at 0.6 pixel ratio.** Not a clamp bug: the budget asks for 0.56 and the
+floor lifts it to 0.6, which is 15 percent over budget rather than under. The softness is the
+budget itself.
+
+### Watched, not defects
+
+- `sites.nextChange()` scans up to 6000 hours from a 400 ms timer. Measured at 0.22 ms per call,
+  a duty cycle under 0.1 percent. Not a frame-rate cause; do not re-open this without a
+  measurement.
+- `PIXEL_BUDGET = 2.6e6` (`src/main.js:27`) is the frame cost lever, not the frame cap. At
+  1440x900 it produces a 2039x1274 canvas for a 1440x900 display. Dropping it to 1.9e6 renders
+  27 percent fewer pixels; that experiment is still open and unmeasured since the cap landed.
