@@ -129,6 +129,7 @@
               <div><dt>Earth link</dt><dd data-k="ex-earthpct">—</dd></div>
               <div><dt>Both at once</dt><dd data-k="ex-both">—</dd></div>
             </dl>
+            <p class="credit">JPL DE421 ephemeris · 3 h steps · percentages are means over the displayed period, computed against LOLA horizon profiles at 0.5° azimuth resolution.</p>
           </section>
 
           <section class="panel" aria-labelledby="ex-risk-h">
@@ -253,7 +254,7 @@
               <div><dt>Steering</dt><dd data-k="r-mode">—</dd></div>
               <div><dt>Odometer</dt><dd data-k="r-odo">—</dd></div>
             </dl>
-            <p class="credit">Rover model: Space ROS · lunar_pole_exploration_rover (Apache-2.0)</p>
+            <p class="credit">Rover model: Space ROS · lunar_pole_exploration_rover (Apache-2.0) · Slope from LOLA 40 m DEM (NASA/GSFC LRO)</p>
           </section>
 
           <p class="rhint">
@@ -459,6 +460,69 @@
         <div class="cta-stack cmp-cta">
           <button id="cmp-map" class="cta2" type="button"><span>Back to Site Map</span></button>
         </div>
+      </section>
+
+      <!-- Entry to the Advisory Board; main.js reveals it once an arrival date is entered. -->
+      <button id="board-launch" class="p2-board-launch" type="button" hidden aria-label="Open the Advisory Board">
+        <img src="./src/assets/board-1.jpg" alt=""><img src="./src/assets/board-ullman.jpg" alt=""><img src="./src/assets/board-5.jpg" alt="">
+        <span><b>Advisory Board</b><small>Board discussion · historical evidence</small></span>
+      </button>
+
+      <!-- Advisory Board -->
+      <section id="board" hidden aria-label="Advisory Board">
+        <header class="hi-head">
+          <img class="hi-head-img" src="./src/assets/earthrise.webp" alt="">
+          <div class="hi-head-copy">
+            <span class="hi-kicker"><img src="./src/assets/team-logo.png" alt="">6DIMENSIONS · ADVISORY BOARD</span>
+            <h1><b id="bd-site-id">—</b><span id="bd-site-name">—</span></h1>
+            <p id="bd-site-meta"></p>
+          </div>
+          <button id="bd-close" class="hi-close" type="button" aria-label="Close">✕ Close</button>
+        </header>
+
+        <div class="hi-body">
+          <aside class="hi-rail" aria-label="Panel and site figures">
+            <h2 class="hi-rail-title">The panel</h2>
+            <div id="bd-panel" class="hi-seats"></div>
+            <div id="bd-verdict" class="hi-verdict"></div>
+            <h2 class="hi-rail-title">Site figures</h2>
+            <div id="bd-metrics" class="hi-metrics"></div>
+            <div id="bd-metrics-legend" class="hi-legend"></div>
+          </aside>
+
+          <main class="hi-main">
+            <div id="bd-gate" class="hi-gate">
+              <span class="hi-step">STEP 1 OF 2 · YOUR CALL</span>
+              <h2>Which site would you recommend to the panel?</h2>
+              <p>Pick one, then the five members reveal their votes and debate it. You can also skip straight to the discussion.</p>
+              <div id="bd-choices" class="hi-choices" role="group" aria-label="Site options"></div>
+              <div class="hi-gate-actions">
+                <button id="bd-submit" class="hi-btn primary" type="button" disabled>Submit &amp; open discussion</button>
+                <button id="bd-skip" class="hi-btn" type="button">Skip quiz ›</button>
+              </div>
+            </div>
+
+            <div id="bd-session" class="hi-session" hidden>
+              <div class="hi-tabs" role="tablist" aria-label="Views">
+                <button class="p2-board-tab hi-tab" role="tab" type="button" data-tab="disc" aria-controls="bd-pane-disc" aria-selected="true">
+                  <b>Board discussion</b><small>3 rounds · final vote</small>
+                </button>
+                <button class="p2-board-tab hi-tab" role="tab" type="button" data-tab="hist" aria-controls="bd-pane-hist" aria-selected="false">
+                  <b>Historical evidence</b><small id="bd-tab-hist-count">missions</small>
+                </button>
+                <div id="bd-result" class="hi-result" role="status"></div>
+              </div>
+              <div id="bd-pane-disc" class="hi-pane" role="tabpanel"><div id="bd-thread" class="hi-rounds"></div></div>
+              <div id="bd-pane-hist" class="hi-pane" role="tabpanel" hidden><div id="bd-history" class="hi-history"></div></div>
+            </div>
+          </main>
+        </div>
+
+        <footer class="hi-foot">
+          <p class="hi-foot-note">Simulated discussion: opinions are generated from this site's figures and cite real mission records. They are not statements by the people pictured.</p>
+          <button id="bd-cert" class="hi-btn" type="button" disabled>Download certificate</button>
+          <button id="bd-proceed" class="hi-btn primary" type="button" disabled>Land at this site ›</button>
+        </footer>
       </section>
 
       <div id="veil" aria-hidden="true"></div>

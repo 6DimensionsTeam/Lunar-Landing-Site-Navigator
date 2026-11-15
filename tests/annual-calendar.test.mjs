@@ -60,6 +60,7 @@ const calendarSource = await readFile(new URL('../src/annual-calendar.js', impor
 const executableCalendar = calendarSource.replace("import './annual-calendar.css';", '')
   .replace("'./annual-planner.js'", JSON.stringify(new URL('../src/annual-planner.js', import.meta.url).href))
   .replace("'./rank.js'", JSON.stringify(new URL('../src/rank.js', import.meta.url).href))
+  .replace("'./advisors.js'", JSON.stringify(new URL('../src/advisors.js', import.meta.url).href))
   .replace("'./annual-map.js'", JSON.stringify(mapModuleURL));
 const { createAnnualCalendar } = await import(`data:text/javascript;base64,${Buffer.from(executableCalendar).toString('base64')}`);
 const [sites, candidates, zoneMeta, zoneBytes, moonPolarMeta, terrainMeta] = await Promise.all([

@@ -8,6 +8,7 @@ const advisors = [
     question: 'Has the navigation system been tested against terrain-driven altitude discontinuities along the entire descent path?',
     fields: ['elev_m', 'horizon_cdeg'], scope: 'Terrain context only',
     limit: 'Site elevation and a horizon profile do not describe the descent path or validate the altitude estimator. The report is not a universal terrain-height limit.',
+    conditions: { sunPct: 71, earthPct: 94, outcome: 'FAILED', outcomeNote: 'Navigation software rejected sensor readings after crater-rim elevation change; propellant exhausted.' },
   },
   {
     id: 'mars-polar-lander', mission: 'Mars Polar Lander', year: 1999,
@@ -16,6 +17,7 @@ const advisors = [
     question: 'Can landing-leg deployment generate a false touchdown signal that shuts down propulsion?',
     fields: [], scope: 'Engineering review required (Mars analogue)',
     limit: 'No touchdown-sensor logic, leg-deployment telemetry or propulsion interlocks are present in the site dataset. Selecting another location cannot establish that this failure is prevented.',
+    conditions: { sunPct: 42, earthPct: null, outcome: 'FAILED', outcomeNote: 'Mars south-polar site — relay comms only. Propulsion cut off prematurely from spurious touchdown signal.' },
   },
   {
     id: 'peregrine-one', mission: 'Peregrine Mission One', year: 2024,
@@ -24,6 +26,7 @@ const advisors = [
     question: 'Has the pressure-control valve retained sealing performance after representative launch vibration?',
     fields: [], scope: 'Engineering review required',
     limit: 'Valve construction, qualification and pressure telemetry are absent. Landing-site light, slope and Earth visibility cannot test this mechanism.',
+    conditions: { sunPct: 79, earthPct: 91, outcome: 'FAILED', outcomeNote: 'Never landed — helium pressure-control valve failed after trans-lunar injection; mission aborted.' },
   },
 ];
 // Contract: pass is true/false only when a sourced test is conclusive, null otherwise.
@@ -57,6 +60,7 @@ export function reviewSite(site = {}, entry = {}) {
       note: [rule.question, rule.scope, rule.limit,
         'Not verified. No official universal threshold is asserted; no safety score or failure probability is inferred.']
         .map((part) => (/[.?!]$/.test(part) ? part : `${part}.`)).join(' '),
+      conditions: rule.conditions || null,
     };
   });
 }
