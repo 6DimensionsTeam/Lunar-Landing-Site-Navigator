@@ -34,7 +34,7 @@
 const CONTINUOUS_COMM_PCT = 80;
 // Resolve the caller's Earth-link bar: a finite percentage is taken as given, anything else
 // truthy means "use our default", and a falsy value means the requirement was not asked for.
-function commBar(need) {
+export function commBar(need) {
   return Number.isFinite(need) ? need : CONTINUOUS_COMM_PCT;
 }
 // A crater floor is only claimed where the ground classification actually says so.
@@ -129,6 +129,68 @@ function evaluate(site, zones, year, needs) {
   if (needs.iceNearby) verdicts.push({ key: 'ice', label: 'Ice nearby', pass: !!ground && ground.iceDistKm <= ICE_NEAR_KM, value: ground ? `${ground.iceDistKm.toFixed(0)} km` : '—' });
 
   return { site, stats: st, ground, score, fails, notes, verdicts, meetsAll: fails.length === 0 };
+}
+
+// A side-by-side reading of the same rankSites() output: one row per site, one column per
+// figure worth comparing across the pool, rather than one site's own verdict read in
+// isolation. Kept here, next to evaluate(), so the columns can never show a number evaluate()
+// did not itself compute.
+//
+// Only the measured figures and the requirements actually asked for become columns. A
+// requirement nobody set would be a column of identical "not asked" cells repeated six times,
+// which is not a comparison; the four baseline figures (sun, Earth link, longest dark, ground)
+// are shown regardless, because those are what distinguishes the sites whether or not a
+// mission constrains them.
+export function compareSites(entries) {
+  const rows = entries.map((entry) => {
+    const { site, stats: st, ground, verdicts } = entry;
+    const byKey = new Map(verdicts.map((v) => [v.key, v]));
+    return {
+      site, entry,
+      cells: {
+        sun: { value: `${st.sun_visible_pct.toFixed(1)}%`, raw: st.sun_visible_pct },
+        comms: { value: `${st.earth_visible_pct.toFixed(1)}%`, raw: st.earth_visible_pct, verdict: byKey.get('comms') ?? null },
+        dark: { value: `${st.longest_dark_h} h`, raw: st.longest_dark_h, verdict: byKey.get('dark') ?? null },
+        ground: {
+          value: ground ? ground.zone : 'unmapped',
+          verdict: byKey.get('crater') ?? null,
+        },
+        ice: { value: ground ? `${ground.iceDistKm.toFixed(0)} km` : '—', raw: ground ? ground.iceDistKm : null, verdict: byKey.get('ice') ?? null },
+        overall: { value: entry.meetsAll ? 'MEETS' : 'FAILS', verdict: { pass: entry.meetsAll } },
+      },
+    };
+  });
+  // A column is worth a place in the table only if at least one row has a verdict for it; sun
+  // and ground are the exception, shown as plain figures with no pass/fail column of their own.
+  const askedComms = rows.some((r) => r.cells.comms.verdict);
+  const askedDark = rows.some((r) => r.cells.dark.verdict);
+  const askedCrater = rows.some((r) => r.cells.ground.verdict);
+  const askedIce = rows.some((r) => r.cells.ice.verdict);
+  // Which raw value wins the column: more sunlight and more Earth link are better, less
+  // darkness and nearer ice are better. ground and overall have no numeric "best" -- ground is
+  // a category and overall already reads as MEETS/FAILS -- so neither marks a best cell.
+  const columns = [
+    { key: 'sun', label: 'Sunlight', better: 'high' },
+    { key: 'comms', label: 'Earth link', graded: askedComms, better: 'high' },
+    { key: 'dark', label: 'Longest dark', graded: askedDark, better: 'low' },
+    { key: 'ground', label: 'Ground', graded: askedCrater },
+    { key: 'ice', label: 'Ice nearby', graded: askedIce, better: 'low' },
+    { key: 'overall', label: 'Meets mission', graded: true },
+  ];
+  // Mark every row that reaches the column's best raw value, not just the first: a tie between
+  // two sites is a real tie, and singling one out would claim a difference the figures do not
+  // show. Rows missing that figure (raw === null, an unmapped site's ice distance) never win.
+  for (const col of columns) {
+    if (!col.better) continue;
+    const present = rows.map((r) => r.cells[col.key].raw).filter((v) => Number.isFinite(v));
+    if (!present.length) continue;
+    const best = col.better === 'high' ? Math.max(...present) : Math.min(...present);
+    for (const row of rows) {
+      const cell = row.cells[col.key];
+      cell.best = Number.isFinite(cell.raw) && cell.raw === best;
+    }
+  }
+  return { rows, columns };
 }
 
 // The one-line answer a reader wants first: does this site work for the mission as stated,

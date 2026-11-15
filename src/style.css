@@ -65,7 +65,7 @@ body {
 }
 
 /* Screens fill the viewport and stack on top of each other; only one is shown at a time.
-   #mission, #select and #analysis are the shells for work in progress, listed here so a
+   #mission, #select and #compare are the shells for work in progress, listed here so a
    new screen has a full-size box to lay out in from the start. */
 #home,
 #explore,
@@ -73,7 +73,7 @@ body {
 #rover,
 #mission,
 #select,
-#analysis { position: absolute; inset: 0; }
+#compare { position: absolute; inset: 0; }
 #rover:focus { outline: none; }
 
 #scene {
@@ -909,21 +909,72 @@ body {
   cursor: default;
 }
 
-/* ---------- site analysis ---------- */
-.analysis-panel { grid-area: sites; justify-self: start; width: var(--dock-w); box-sizing: border-box; }
-.analysis-panel h2::before { content: ''; width: 0.55em; height: 0.55em; background: var(--fg); }
-.analysis-ai { grid-area: live; justify-self: end; width: var(--dock-w); box-sizing: border-box; }
-/* the requirement verdicts are the point of the panel: a pass/fail block per requirement */
-#an-reqs ddd, #an-reqs dd { margin: 0; }
-#an-reqs div { align-items: flex-start; }
-#an-reqs dd { flex-direction: column; align-items: flex-end; gap: 0.2em; text-align: right; }
-#an-reqs .val { font: 600 0.86em/1 var(--sans); color: var(--fg2); }
-.an-text { margin: 0; font: 500 0.95em/1.62 var(--sans); letter-spacing: 0.02em; color: var(--fg); }
-/* The generated verdict is long ("Suitable as configured") and the subtitle carries a whole
-   line of coordinates, so this block needs more room than the shared title rule gives it. */
-#analysis .ttl { width: min(64vw, 900px); }
-#analysis .ttl h1 { margin-top: 0.25em; }
-#analysis .ttl .ttl-en { margin-top: 0.7em; }
+/* ---------- site comparison ---------- */
+.cmp-ttl { width: min(64vw, 900px); }
+.cmp-ttl h1 { margin-top: 0.25em; }
+.cmp-ttl .ttl-en { margin-top: 0.7em; }
+
+/* The table sits below the title block the same way #worlds' chart does, full width rather
+   than docked to one side: a comparison needs the horizontal room a dock panel does not have. */
+.cmp-wrap {
+  position: absolute;
+  left: var(--pad);
+  right: var(--pad);
+  top: 30vh;
+  bottom: calc(var(--pad) + 4.6em);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.cmp-wrap::-webkit-scrollbar { width: 4px; height: 4px; }
+.cmp-wrap::-webkit-scrollbar-thumb { background: rgba(242, 244, 245, 0.3); }
+.cmp-table { width: 100%; border-collapse: collapse; font: 500 0.92em/1.3 var(--sans); }
+.cmp-table th, .cmp-table td { padding: 0.6em 0.9em; text-align: right; white-space: nowrap; border-bottom: 1px solid rgba(242, 244, 245, 0.13); }
+.cmp-table thead th {
+  position: sticky;
+  top: 0;
+  background: #0b0d0e;
+  font: 700 0.8em/1 var(--sans);
+  letter-spacing: 0.1em;
+  color: var(--fg2);
+  text-transform: uppercase;
+  border-bottom: 1px solid rgba(242, 244, 245, 0.3);
+}
+.cmp-table thead th:first-child, .cmp-table tbody th { text-align: left; }
+/* The id/name cell, same chip-plus-name shape #sel-site-list already uses, so a reader who has
+   seen that list recognises this one rather than learning a second way of labelling a site. */
+.cmp-table tbody th {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  font: 700 0.92em/1 var(--sans);
+  letter-spacing: 0.06em;
+  color: var(--fg);
+}
+.cmp-table tbody th i {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.6em;
+  height: 1.6em;
+  font: 700 0.85em/1 var(--sans);
+  font-style: normal;
+  color: var(--fg);
+}
+/* A published region and a place our own scan found are different claims; .found says which,
+   the same rule #sel-site-list already draws it with. */
+.cmp-table tbody th.found i { color: var(--fg2); }
+.cmp-table td[data-state='on'] { color: var(--ok); }
+.cmp-table td[data-state='off'] { color: var(--red); }
+/* The single best figure in each graded column, marked the same red the chosen row's border
+   uses -- rarer and stronger than the pass/fail colouring above, so it wins over both when a
+   cell happens to be the column's best and a plain PASS at once. */
+.cmp-table td.cmp-best { color: var(--red); font-weight: 700; }
+/* The row for the site the user committed to, picked out so a reader does not have to match the
+   id chip to the one behind it on the surface. */
+.cmp-table tbody tr.cmp-chosen { background: rgba(242, 244, 245, 0.07); }
+.cmp-table tbody tr.cmp-chosen th { border-left: 2px solid var(--red); padding-left: calc(0.9em - 2px); }
+.cmp-note { position: absolute; left: var(--pad); right: var(--pad); bottom: var(--pad); max-width: none; }
+.cmp-cta { position: absolute; left: var(--pad); bottom: calc(var(--pad) + 3em); }
 
 .hover-tip {
   position: absolute;
@@ -1603,19 +1654,21 @@ body {
 @media (max-width: 1100px) {
   /* the two panels sit side by side towards the centre, the entry button centred below them */
   .dock { grid-template-columns: repeat(2, minmax(0, var(--dock-w))); justify-content: center; grid-template-areas: 'sites live' 'cta cta'; gap: 1.2em 1.4em; }
-  /* .legend and the two analysis panels belong here too: they are dock children with the same
-     fixed `width: var(--dock-w)`, and this list is what releases it. Left out, .legend stayed
-     441px inside a 341.7px track and covered the candidate list by 79.7px, measured at 740x360 --
-     the window where this breakpoint applies but the 720px one does not. */
+  /* .legend belongs here too: it is a dock child with the same fixed `width: var(--dock-w)`,
+     and this list is what releases it. Left out, .legend stayed 441px inside a 341.7px track
+     and covered the candidate list by 79.7px, measured at 740x360 -- the window where this
+     breakpoint applies but the 720px one does not. */
   .sites, .params, .tele, .live,
-  .panel.legend, .analysis-panel, .analysis-ai { justify-self: stretch; width: auto; }
+  .panel.legend { justify-self: stretch; width: auto; }
   /* Two rows now, so the height cap has to be shared between them. Without a row template the
      panel row takes the dock's whole max-height (486px at 900px tall) and the button row lands
      past the bottom edge: measured at 740x900, the button row sat at y=898.3 in a 900px viewport
      with 1.7px on screen. minmax(0, 1fr) lets the panels shrink, `auto` keeps the buttons whole. */
-  #select .dock, #analysis .dock { grid-template-rows: minmax(0, 1fr) auto; row-gap: 1em; }
-  #select .legend, #select .live,
-  #analysis .analysis-panel, #analysis .analysis-ai { min-height: 0; }
+  #select .dock { grid-template-rows: minmax(0, 1fr) auto; row-gap: 1em; }
+  #select .legend, #select .live { min-height: 0; }
+  /* #compare has no dock -- its table scrolls on its own -- but the title and CTA still need
+     the dock-width panel's room given back, the same way .legend does above. */
+  .cmp-wrap { top: 32vh; }
 }
 @media (max-width: 720px) {
   .sites, .params, .tele, .ttl-d, .rover-cta span { display: none; }
@@ -1637,27 +1690,28 @@ body {
   .desc { width: auto; }
   .loc span, .clock .id, .clock .mt, #explore .clock { display: none; }
   /* Base template only names 'live' and 'cta'. A dock with a third child in grid-area 'sites'
-     (.legend on #select, .analysis-panel on #analysis) has no slot for it: that name resolves to
-     an implicit track outside the explicit grid, which is how the candidate list ended up at
-     x=-168 and the legend panel landed below the viewport, both measured at 390x844. Naming all
-     three areas gives every panel a real row and stacks them in reading order: the decision
-     (sites/live) above the actions (cta). */
+     (.legend on #select) has no slot for it: that name resolves to an implicit track outside
+     the explicit grid, which is how the candidate list ended up at x=-168 and the legend panel
+     landed below the viewport, both measured at 390x844. Naming all three areas gives every
+     panel a real row and stacks them in reading order: the decision (sites/live) above the
+     actions (cta). */
   .dock { grid-template-columns: 1fr; grid-template-areas: 'sites' 'live' 'cta'; gap: 1em; }
   /* Every dock child, not just the ones in the base template. A single child left at its fixed
      `width: var(--dock-w)` (441px at this font size) sizes the shared 1fr column to 441px and
-     pushes the whole stack past both viewport edges -- measured on #analysis, where .analysis-ai
-     was the one still holding its fixed width. */
-  .sites, .panel.legend, .analysis-panel, .analysis-ai, .params, .tele,
+     pushes the whole stack past both viewport edges. */
+  .sites, .panel.legend, .params, .tele,
   .live, .cta-stack, .cta { justify-self: stretch; width: auto; }
-  /* The unconditional `max-height: calc(100vh - 46vh)` on #select/#analysis .dock assumed two
-     panels sharing one row; stacked three-high it leaves no room and pushes .cta-stack past the
-     viewport bottom (measured: cta at y=845 in an 844px-tall viewport). Lift the cap here and let
-     the candidate/requirement list do the scrolling instead, which it already supports
-     (#sel-site-list, #an-reqs overflow-y: auto). */
-  #select .dock, #analysis .dock { max-height: none; }
-  #select .legend, #select .live,
-  #analysis .analysis-panel, #analysis .analysis-ai { max-height: 38vh; }
+  /* The unconditional `max-height: calc(100vh - 46vh)` on #select .dock assumed two panels
+     sharing one row; stacked three-high it leaves no room and pushes .cta-stack past the
+     viewport bottom (measured: cta at y=845 in an 844px-tall viewport). Lift the cap here and
+     let the candidate list do the scrolling instead, which it already supports
+     (#sel-site-list overflow-y: auto). */
+  #select .dock { max-height: none; }
+  #select .legend, #select .live { max-height: 38vh; }
   .ttl { top: calc(var(--pad) + 52px); }
+  /* #compare's table already scrolls inside .cmp-wrap; give it back the room .ttl no longer
+     needs at this height rather than letting it sit under a fixed 30vh top offset. */
+  .cmp-wrap { top: calc(var(--pad) + 52px + 7em); }
   #orbit .clock, #orbit .tag:not([data-tag='ring']) .lbl, #orbit .tag:not([data-tag='ring']) .lead, .tag[data-tag='ring'] .lbl > span { display: none; }
   .tag[data-tag='crater'] .lbl > span, .site span, .frame::before, .frame::after { display: none; }
   .hint { flex-wrap: wrap; justify-content: center; gap: 0.6em 1.2em; width: max-content; max-width: 80vw; white-space: normal; }
@@ -1670,22 +1724,25 @@ body {
    here: it takes 187px of the 360, so trimming it and laying the buttons out in a row gives the
    dock room for both of its rows. */
 @media (max-height: 520px) and (min-width: 721px) {
-  #select .ttl-d, #analysis .ttl-d { display: none; }
-  #select .ttl, #analysis .ttl { padding-block: 0.5em 0.6em; }
+  #select .ttl-d { display: none; }
+  #select .ttl, .cmp-ttl { padding-block: 0.5em 0.6em; }
   /* The row template is what bounds the height here, not max-height on the dock: a grid's
      max-height caps the container while its children keep overflowing it, which is what left the
      panels 735px tall and the buttons at y=848. minmax(0, 1fr) lets the panel row take the slack
      and shrink below its content, and `auto` gives the button row exactly what it needs. */
-  #select .dock, #analysis .dock {
+  #select .dock {
     max-height: calc(100vh - 34vh);
     grid-template-rows: minmax(0, 1fr) auto;
     row-gap: 0.6em;
   }
   /* Three buttons across instead of stacked: the row costs one button's height, not three. */
-  #select .cta-stack, #analysis .cta-stack { grid-auto-flow: column; grid-auto-columns: 1fr; }
+  #select .cta-stack { grid-auto-flow: column; grid-auto-columns: 1fr; }
   /* min-height: 0 is required for the 1fr row to actually shrink; the panels already scroll. */
-  #select .legend, #select .live,
-  #analysis .analysis-panel, #analysis .analysis-ai { max-height: none; min-height: 0; }
+  #select .legend, #select .live { max-height: none; min-height: 0; }
+  /* Same shrink as #select's title gets above: the table takes the room back from .cmp-wrap's
+     fixed top offset, which assumes a full-height title block this short viewport does not have. */
+  .cmp-wrap { top: calc(var(--pad) + 44px); bottom: calc(var(--pad) + 3em); }
+  .cmp-cta { bottom: var(--pad); }
 }
 
 /* ---------- reduced motion: keep fades only ---------- */

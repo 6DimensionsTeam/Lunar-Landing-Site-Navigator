@@ -15,7 +15,7 @@ import { createStation, STATION, CORE_TRIM } from './scene/station.js';
 import { createRover, SPEED_LIMITS } from './scene/rover.js';
 import { createZones } from './zones.js';
 import { createGlobe } from './scene/globe.js';
-import { rankSites, statsFor, explain, candidatePool } from './rank.js';
+import { rankSites, statsFor, explain, candidatePool, compareSites } from './rank.js';
 import { buildWorlds, runWorlds, summarise as worldsSummarise } from './worlds.js';
 import { reviewSite } from './advisors.js';
 
@@ -245,8 +245,8 @@ async function boot() {
   let returnToMap = () => {};
   // Set by the analysis block. The key handler runs earlier in this file, so it asks rather
   // than reaching into that block.
-  let analysisOpen = () => false;
-  let closeAnalysis = () => {};
+  let compareOpen = () => false;
+  let closeCompare = () => {};
   const orbitFlag = new URLSearchParams(location.search).has('orbit');   // draw the full relay ellipse
   const mouse = new THREE.Vector2(), look = { yaw: 0, pitch: 0 };
   let driftT0 = performance.now();
@@ -945,10 +945,10 @@ async function boot() {
     // Escape would leave the map with the trial still drawn over it.
     if (e.key === 'Escape' && worldsIsOpen && worldsIsOpen()) { worldsClose(); hud.showScreen('select'); return; }
     if (e.key === 'Escape' && globeShown) { leaveGlobe(); return; }
-    // #analysis sits on top of the surface view, so without its own branch Escape falls into
+    // #compare sits on top of the surface view, so without its own branch Escape falls into
     // the explore one, which hides the explore screen and returns to the map -- leaving the
-    // analysis panel and the map both revealed. It closes the same way its Back button does.
-    if (e.key === 'Escape' && analysisOpen()) { closeAnalysis(); return; }
+    // comparison panel and the map both revealed. It closes the same way its Back button does.
+    if (e.key === 'Escape' && compareOpen()) { closeCompare(); return; }
     if (e.key === 'Escape' && mode === 'explore') backFromSurface();
     else if (e.key === 'Escape' && mode === 'orbit') go('home');
     else if (e.key === 'Enter' && mode === 'home' && !onBtn) go('explore');
@@ -1111,8 +1111,8 @@ async function boot() {
     onVisit(fn) {
       this.visitHandler = fn;
     },
-    visit(site, entry) {
-      if (this.visitHandler) this.visitHandler(site, entry);
+    visit(site, entry, year) {
+      if (this.visitHandler) this.visitHandler(site, entry, year);
     },
   };
 
@@ -1137,7 +1137,7 @@ async function boot() {
         // "Show result" on the calendar's recommendation flies to that site the same way
         // picking it on the zone map does. descendTo is declared in a sibling block and is not
         // in scope here, so the call goes through the mission hand-off instead (mission.visit).
-        onVisit: (cell) => mission.visit(cell.site, cell.entry),
+        onVisit: (cell) => mission.visit(cell.site, cell.entry, cell.year),
       });
       const missionFlow = createMission({
         eph,
@@ -1638,12 +1638,20 @@ async function boot() {
     // tile's 480 m cells, which is visibly coarser underfoot. The flight still works; the
     // ground is simply blockier at the two outer sites, and no interpolation would put detail
     // there that the DEM does not have.
-    function descendTo(site, entry) {
+    function descendTo(site, entry, year = lastYear) {
       // The commitment is recorded before the camera moves, because it is what the rest of the
       // flow is about: the analysis screen scores the site the user chose, not the best site in
       // the abstract. Also announced on the mission object so a later package can pick it up
       // without P1 having to know who is listening.
-      chosenSite = { site, entry, year: lastYear, needs: missionNeeds };
+      //
+      // year defaults to lastYear, the zone map's own current year, for a site chosen there --
+      // but a caller through mission.visit (the calendar's "Show result") is committing to a
+      // specific annual match, often a different year than the map is showing, and entry was
+      // computed against that year. Without threading it through here, the commit kept the
+      // map's year while the figures and PASS/FAIL stayed the calendar's -- a 2030 recommendation
+      // read back out as 2028's numbers under a 2028 label, both wrong for what was actually
+      // being shown.
+      chosenSite = { site, entry, year, needs: missionNeeds };
       mission.publishSite(chosenSite);
       surfaceHud.set(chosenSite);
       chosenSiteRef = () => chosenSite;
@@ -1758,12 +1766,12 @@ async function boot() {
       show();
     };
     document.getElementById('tositemap').addEventListener('click', returnToMap);
-    // Forward, to the analysis of the site just visited. Disabled until a site has actually
-    // been committed to, since there is nothing to analyse before that.
-    const analyseBtn = document.getElementById('toanalysis');
-    analyseBtn.disabled = true;
-    analyseBtn.addEventListener('click', () => { if (mission.site) window.__lln_analysis?.(mission.site); });
-    mission.onSite(() => { analyseBtn.disabled = false; });
+    // Forward, to the comparison table. Disabled until a site has actually been committed to:
+    // the table highlights the chosen site, so there is nothing for it to highlight before that.
+    const compareBtn = document.getElementById('tocompare');
+    compareBtn.disabled = true;
+    compareBtn.addEventListener('click', () => { if (mission.site) window.__lln_compare?.(mission.site); });
+    mission.onSite(() => { compareBtn.disabled = false; });
 
     // Reachable before P2 exists, for development
     window.__lln_showGlobe = show;
@@ -1772,90 +1780,107 @@ async function boot() {
     window.__lln_globe = globe;
   }
 
-  // P3, criteria and AI analysis. Shows #analysis. Reads mission.cfg and scores against it.
+  // P3, site comparison. Shows #compare. Reads mission.cfg and scores the whole pool against it.
   //
-  // This renders the ranking the map already computed, rather than scoring again: the map and
-  // this screen have to agree on why a site wins, and two independent scorers would drift. What
-  // it adds is the per-requirement breakdown, which the list has no room for, and an assessment
-  // paragraph. Both are assembled from measured values only -- no model call, so the analysis
-  // renders with the network off, which is the requirement the submission has to meet.
+  // This renders the same ranking the zone map already computes, rather than scoring again: the
+  // map and this screen have to agree on why a site wins, and two independent scorers would
+  // drift. What it adds is reading every site's figures in one place, which a list built to be
+  // skimmed one row at a time has no room for. Assembled from measured values only -- no model
+  // call, so the table renders with the network off.
   {
-    const an = id => document.getElementById(id);
-    let current = null;
+    const cp = id => document.getElementById(id);
 
     function render(sel) {
-      current = sel;
-      const { site, entry, year, needs } = sel;
-      an('an-site').textContent = site.en;
-      // "Suitable as configured" was written unconditionally, which claimed a verdict against a
-      // mission even when no requirement had been set -- and it overrode explain(), four lines
-      // below, which already words that case correctly. The headline now follows whether
-      // anything was actually asked of the site.
-      const asked = entry.verdicts.length > 0;
-      an('an-verdict').textContent = !asked ? 'Ranked on measured conditions'
-        : entry.meetsAll ? 'Suitable as configured' : 'Does not meet the mission';
-      an('an-year').textContent = year != null
-        ? `${year} MEANS, WORST-CASE NIGHT · ${site.lat.toFixed(2)}° S · ${site.lon.toFixed(2)}° E`
-        : `${site.lat.toFixed(2)}° S · ${site.lon.toFixed(2)}° E`;
+      const { entry: chosen, year } = sel;
+      cp('cmp-year').textContent = year != null
+        ? `${year} MEANS, WORST-CASE NIGHT · JPL DE421`
+        : 'WHOLE-RECORD MEANS, WORST-CASE NIGHT · JPL DE421';
+      // Recomputed here rather than carried from the zone map, which only ranks the shortlist
+      // it currently has reason to show; a comparison table's whole point is to not also cut
+      // sites, so it ranks candidatePool() in full, the same inputs sites.json's own call does.
+      const ranked = rankSites(candidatePool(data), zones, year, sel.needs || {});
+      const { rows, columns } = compareSites(ranked);
 
-      const reqs = an('an-reqs');
-      reqs.textContent = '';
-      // Reachable again now that verdicts are only produced for requirements that were set.
-      const rows = entry.verdicts.length ? entry.verdicts
-        : [{ label: 'No requirements set', pass: true, value: 'measured conditions only' }];
-      for (const v of rows) {
-        const row = document.createElement('div');
-        row.innerHTML = '<dt></dt><dd><span class="val"></span><em></em></dd>';
-        row.querySelector('dt').textContent = v.label;
-        row.querySelector('.val').textContent = v.value;
-        const em = row.querySelector('em');
-        em.dataset.state = v.pass ? 'on' : 'off';
-        em.textContent = v.pass ? 'PASS' : 'FAIL';
-        reqs.appendChild(row);
+      const table = cp('cmp-table');
+      table.textContent = '';
+      const thead = document.createElement('thead');
+      const headRow = document.createElement('tr');
+      headRow.appendChild(document.createElement('th'));
+      for (const col of columns) {
+        const th = document.createElement('th');
+        th.textContent = col.label;
+        headRow.appendChild(th);
       }
+      thead.appendChild(headRow);
+      table.appendChild(thead);
 
-      an('an-ai').textContent = explain(entry, needs);
-      const st = entry.stats;
-      an('an-credit').textContent =
-        `${st.sun_visible_pct.toFixed(1)}% sunlight · ${st.earth_visible_pct.toFixed(1)}% Earth link · `
-        + `${st.both_pct.toFixed(1)}% both · longest dark ${st.longest_dark_h} h. `
-        + 'Percentages are whole-calendar-year means from LOLA horizon profiles and DE421. The '
-        + 'longest night is not a mean: it is the worst continuous dark run measured across the '
-        + 'whole record, which is the figure a lander has to survive, and it can exceed any one '
-        + 'year when a spell crosses a year boundary. Neither is a surface-window calculation.';
+      const tbody = document.createElement('tbody');
+      for (const row of rows) {
+        const tr = document.createElement('tr');
+        if (row.site.id === chosen.site.id) tr.className = 'cmp-chosen';
+        const th = document.createElement('th');
+        th.scope = 'row';
+        th.innerHTML = `<i>${row.site.id}</i><span>${row.site.en}</span>`;
+        if (row.site.source === 'data') th.classList.add('found');
+        tr.appendChild(th);
+        for (const col of columns) {
+          const cell = row.cells[col.key];
+          const td = document.createElement('td');
+          td.textContent = cell.value;
+          if (col.graded && cell.verdict) {
+            td.dataset.state = cell.verdict.pass ? 'on' : 'off';
+          }
+          // The best figure in the column, not just the best overall site -- a site can win on
+          // Earth link and still lose on sunlight, and a reader comparing columns needs to see
+          // that rather than only where the chosen row sits.
+          if (cell.best) td.classList.add('cmp-best');
+          tr.appendChild(td);
+        }
+        tbody.appendChild(tr);
+      }
+      table.appendChild(tbody);
+
+      const asked = ranked[0]?.verdicts.length > 0;
+      // Which period "longest dark" actually covers has to follow year the same way cmp-year's
+      // own header does: statsFor(site, year) reads that year's own worst run once a year is
+      // given, not the whole 2026-2040 record's. Writing "whole-calendar-year means... the
+      // worst continuous dark run" unconditionally said the record figure while a specific
+      // year's annual one was what the table was actually showing -- the same distinction
+      // surfaceHud.set's ex-src note draws for the surface screen, just not carried over here.
+      const darkPeriod = year != null ? `${year}'s own` : `the whole ${eph.startYear}-${eph.endYear} record's`;
+      cp('cmp-note').textContent = (asked
+        ? 'PASS/FAIL columns are only shown for requirements the mission actually asked for; an unshaded column was never asked. '
+        : 'No requirements were set, so every column is a measured figure with no pass or fail. ')
+        + `Sunlight and Earth link are ${year != null ? `${year}'s own` : 'whole-calendar-year'} means; longest dark is ${darkPeriod} `
+        + 'worst continuous dark run, measured from LOLA horizon profiles and DE421, not a surface-window calculation. '
+        + 'The highlighted row is the site you committed to.';
     }
 
-    const isOpen = () => !an('analysis').hidden;
+    const isOpen = () => !cp('compare').hidden;
     function open(sel) {
       render(sel);
       hud.hideScreen('explore');
-      hud.showScreen('analysis');
-      an('an-back').focus({ preventScroll: true });
+      hud.showScreen('compare');
+      cp('cmp-back').focus({ preventScroll: true });
     }
     // Closing returns to the surface, which is where this screen is reached from. It is the
     // one thing that must not drift: leaving the panel up over a screen it replaced is how the
     // two end up stacked.
     function close() {
       if (!isOpen()) return;
-      hud.hideScreen('analysis');
+      hud.hideScreen('compare');
       hud.showExplore();
-      an('an-back').blur();
+      cp('cmp-back').blur();
     }
-    analysisOpen = isOpen;
-    closeAnalysis = close;
+    compareOpen = isOpen;
+    closeCompare = close;
 
-    // Subscribes only so a committed site is available; it deliberately does not open the
-    // screen. Publishing happens as the descent begins, so opening here would take the user to
-    // the analysis before they had seen the site they picked, with the flight running unseen
-    // behind it -- and the button that is meant to lead here would then be opening a screen
-    // that had already opened itself.
-    mission.onSite((sel) => { current = sel; });
-    an('an-back').addEventListener('click', close);
-    an('an-map').addEventListener('click', () => {
-      hud.hideScreen('analysis');
+    cp('cmp-back').addEventListener('click', close);
+    cp('cmp-map').addEventListener('click', () => {
+      hud.hideScreen('compare');
       returnToMap();
     });
-    window.__lln_analysis = open;
+    window.__lln_compare = open;
   }
 
   // Leo, F-03 rover top speed: type a value, or reset to the real rover's speed
