@@ -45,8 +45,12 @@ export function reviewSite(site = {}, entry = {}) {
       field: rule.fields.length ? rule.fields.join(', ') : 'No applicable site-data field',
       pass: null,
       value: observations.length ? observations.join(' ') : 'No applicable measurements available',
+      // Joined with a sentence break after each part. A plain ' ' join ran the scope straight
+      // into the limit ("Terrain context only Site elevation and a horizon profile do not..."),
+      // which reads as one broken sentence and leaves a caller no way to separate the parts.
       note: [rule.question, rule.scope, rule.limit,
-        'Not verified. No official universal threshold is asserted; no safety score or failure probability is inferred.'].join(' '),
+        'Not verified. No official universal threshold is asserted; no safety score or failure probability is inferred.']
+        .map((part) => (/[.?!]$/.test(part) ? part : `${part}.`)).join(' '),
     };
   });
 }
