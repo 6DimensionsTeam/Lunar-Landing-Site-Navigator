@@ -365,6 +365,7 @@ export function createHud({ bootSteps }) {
     pill('rsun', t.lit === 'sun', { sun: 'SUNLIT', shade: 'SHADE', night: 'NIGHT' }[t.lit]);
     bind('r-pow', `${Math.round(t.power * 100)}%`);
     bind('r-warn', t.warn || '');
+    $('#rpass').hidden = !t.rockBlocked;
     const lb = $('#rlights');
     lb.textContent = t.hlOn ? 'On' : 'Off';
     lb.setAttribute('aria-pressed', String(t.hlOn));
@@ -423,6 +424,7 @@ export function createHud({ bootSteps }) {
     onLights: (fn) => { $('#rlights').addEventListener('click', fn); $('#tlights').addEventListener('click', fn); },
     onNavcam: (fn) => $('#tnav').addEventListener('click', fn),
     onTime: (fn) => $('#rtime').addEventListener('click', fn),
+    onDriveThrough: (fn) => $('#rpass').addEventListener('click', fn),
     onCardClose: (fn) => $('.pc-x', pcard).addEventListener('click', fn),
     joy: $('#joy'),
     showHome: () => { sec = home; reveal(home); nFrame = 0; },

@@ -352,10 +352,14 @@ export async function createRover(renderer, glbUrl, ctx) {
   // ---------- state ----------
   const st = {
     x: 0, y: 0, hdg: 0, v: 0, w: 0, kappa: 0, mode: 'drive', odo: 0,
-    slope: 0, pitch: 0, roll: 0, warn: '', warnT: 0,
+    slope: 0, pitch: 0, roll: 0, warn: '', warnT: 0, rockBlocked: false,
     vis: [1, 1], sunUp: 1, power: 0, range: null, lit: 'sun',
     hl: 0, hlOn: false, hlAuto: true,
   };
+  // One-shot: set by the HUD's "drive through" button, consumed by the next blocked step.
+  // Slope and range limits stay hard; only the rock check is skippable, since that is the
+  // one failure Leo reported as worth overriding rather than driving around.
+  let passRock = false;
   const mast = { pan: 0, tilt: -0.1, tp: 0, tt: -0.1, manual: 0, sweep: 0, t: 0 };
   let demo = 0;
   const input = { thr: 0, str: 0, crab: 0, brake: false };
@@ -448,11 +452,13 @@ export async function createRover(renderer, glbUrl, ctx) {
     if (moved > 1e-6) {
       const s1 = slopeDeg(st.x, st.y);
       let why = null;
+      const rockHit = !passRock && rocks.blocked(wheelXY(), st.x, st.y);
       if (Math.hypot(st.x, st.y) > DRIVE.range) why = `Outside working range (${(DRIVE.range / 1000).toFixed(1)} km from A)`;
       else if (s1 > DRIVE.slopeMax && s1 > st.slope) why = `Slope ${s1.toFixed(0)}° exceeds the ${DRIVE.slopeMax}° climb limit`;
-      else if (rocks.blocked(wheelXY(), st.x, st.y)) why = 'Rock too high ahead, go around';
+      else if (rockHit) why = 'Rock too high ahead, go around';
+      st.rockBlocked = !!why && rockHit;
       if (why) { st.x = ox; st.y = oy; st.hdg = oh; st.v = 0; st.w = 0; warn(why); }
-      else st.odo += moved;
+      else { st.odo += moved; passRock = false; }
     }
     if (st.warnT > 0 && (st.warnT -= dt) <= 0) st.warn = '';
     // How far each wheel rolled: the wheel centre's displacement projected onto the wheel's heading. Tracks are stamped along this segment
@@ -789,5 +795,8 @@ export async function createRover(renderer, glbUrl, ctx) {
     toggleLights: () => { st.hlOn = !st.hlOn; st.hlAuto = false; return st.hlOn; },
     dragMast: (dx, dy) => { mast.manual = 8; mast.sweep = 0; mast.tp = THREE.MathUtils.clamp(mast.tp - dx, -3.4, 3.4); mast.tt = THREE.MathUtils.clamp(mast.tt + dy, -1.2, 1.2); },
     react: (p) => { if (p.group === 'mast') { mast.sweep = 6; mast.manual = 0; } else if (p.group === 'wheel') demo = 4.6; },
+    // Lets the next blocked step through a rock pile instead of bouncing off it forever.
+    // Only armable while a rock is the actual reason the rover is stopped.
+    driveThrough: () => { if (st.rockBlocked) passRock = true; },
   };
 }
