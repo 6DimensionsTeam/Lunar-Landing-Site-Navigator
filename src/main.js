@@ -353,6 +353,77 @@ async function boot() {
     hud.set({ sun: v.sun, earth: v.earth, next });
   }
 
+  // ---- Surface site readout: whatever site the camera is standing at ----
+  // Set when a site is committed on the zone map (descendTo), refreshed on the 400 ms timer while
+  // the free camera is up. Every figure is a measurement: the live sun/Earth state is the same
+  // horizon-profile test the home screen runs for Shackleton, the percentages and the longest
+  // night/blackout are the site's own full-resolution figures, and the fault distance is the
+  // nearest mapped scarp. Nothing is shown for a field the data does not carry.
+  const surfaceHud = (() => {
+    let cur = null, next = { h: null }, lastLit = null;
+    const pct = (v) => (Number.isFinite(v) ? `${v.toFixed(1)}%` : '—');
+    const hrs = (v) => (Number.isFinite(v) ? `${v} h · ${(v / 24).toFixed(1)} d` : 'no data');
+    const span = (h) => (h >= 48 ? `${(h / 24).toFixed(1)} days` : `${h.toFixed(1)} h`);
+    // Nearest mapped scarp, by the same planar south-polar projection the scarp file is in. Data
+    // sites carry a precomputed fault_km; the published regions do not, so it is measured here.
+    function faultKm(site) {
+      if (Number.isFinite(site.fault_km)) return { km: site.fault_km, id: null };
+      const sc = data.quakes?.scarps || [];
+      const p = latLonToMap(R, site.lat, site.lon);
+      let best = null;
+      for (const f of sc) {
+        const a = latLonToMap(R, f.start[0], f.start[1]), b = latLonToMap(R, f.end[0], f.end[1]);
+        const dx = b.x - a.x, dy = b.y - a.y, L = dx * dx + dy * dy;
+        const t = L ? THREE.MathUtils.clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / L, 0, 1) : 0;
+        const d = Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy);
+        if (!best || d < best.km) best = { km: d, id: f.id };
+      }
+      return best;
+    }
+    function set(sel) {
+      const s = sites.byId(sel.site.id) || sel.site;
+      cur = s; lastLit = null; next = { h: null };
+      const st = sel.entry?.stats || s.stats || {}, g = sel.entry?.ground;
+      const src = s.source === 'nasa' ? 'NASA ARTEMIS CANDIDATE REGION' : s.source === 'surveyed' ? 'SURVEYED · BELOW THE BAR' : 'DATA-SELECTED · OUR GRID SCAN';
+      hud.bind('ex-name', s.en.replace(/\b\w+/g, (w) => w[0] + w.slice(1).toLowerCase()));
+      hud.bind('ex-sub', `LANDING SITE ${s.id}`);
+      hud.bind('ex-id', `${s.id} · ${s.source === 'nasa' ? 'NASA' : 'DATA'}`);
+      hud.bind('ex-ll', `${Math.abs(s.lat).toFixed(3)}° S · ${(((s.lon % 360) + 360) % 360).toFixed(2)}° E`);
+      hud.bind('ex-elev', Number.isFinite(s.elev_m) ? `${Math.round(s.elev_m).toLocaleString('en-US')} m` : '—');
+      hud.bind('ex-ground', g ? g.zone.toUpperCase() : 'unmapped');
+      hud.bind('ex-slope', g && Number.isFinite(g.slopeDeg) ? `${g.slopeDeg.toFixed(1)}°` : (Number.isFinite(s.slope_deg) ? `${s.slope_deg.toFixed(1)}°` : '—'));
+      hud.bind('ex-src', `${src}. Figures: ${sel.year ? `${sel.year} annual` : `${eph.startYear}–${eph.endYear} mean`}, LOLA horizon × DE421.`);
+      hud.pill('ex-verdict', !!sel.entry?.meetsAll, sel.entry ? (sel.entry.meetsAll ? 'MEETS' : 'FAILS') : '—');
+      hud.bind('ex-sunpct', pct(st.sun_visible_pct));
+      hud.bind('ex-earthpct', pct(st.earth_visible_pct));
+      hud.bind('ex-both', pct(st.both_pct));
+      // Endurance figures are the whole-period worst case, the same figure the pool is screened on
+      const whole = s.stats || st;
+      hud.bind('ex-dark', hrs(whole.longest_dark_h));
+      hud.bind('ex-blind', hrs(whole.longest_blind_h));
+      hud.bind('ex-ice', g && Number.isFinite(g.iceDistKm) ? (g.iceLikely ? 'on site' : `${g.iceDistKm.toFixed(1)} km`) : '—');
+      const f = faultKm(s);
+      hud.bind('ex-fault', f ? `${f.km.toFixed(1)} km${f.id ? ` · scarp ${f.id}` : ''}` : 'no catalogue data');
+      refresh(nowH());
+    }
+    function refresh(h) {
+      if (!cur || !cur.hor) return;
+      const v = sites.look(cur, h);
+      const sign = (x) => `${x >= 0 ? '+' : '−'}${Math.abs(x).toFixed(2)}°`;
+      hud.bind('ex-sun', sign(v.sun.el));
+      hud.pill('exsun', v.sun.lit, v.sun.lit ? 'SUNLIT' : 'DARK');
+      hud.bind('ex-earth', sign(v.earth.el));
+      hud.pill('exearth', v.earth.visible, v.earth.visible ? 'LINK' : 'BLOCKED');
+      if (v.sun.lit !== lastLit || (next.h != null && h > next.h)) {
+        lastLit = v.sun.lit;
+        next = { h: sites.nextChange(cur, h, 'sun') };
+      }
+      hud.bind('ex-next', next.h == null ? 'none within 250 days'
+        : `${v.sun.lit ? 'sunset' : 'sunrise'} in ${span(next.h - h)}`);
+    }
+    return { set, refresh, get site() { return cur; } };
+  })();
+
   // ---- Mode switching: home ⇄ explore, home ⇄ orbit, orbit → explore (landing) ----
   // The two free-look views use different OrbitControls limits: crater rim in kilometres, relay station in hundreds of metres
   const CTRL = {
@@ -594,6 +665,7 @@ async function boot() {
   setInterval(() => {
     refreshLive(nowH());
     if (mode === 'orbit') refreshOrbit();
+    if (mode === 'explore') surfaceHud.refresh(nowH());
     if (mode === 'home') for (const s of sites.sites) blocked[s.id] = occluded(camera.position, s.scene);
   }, 400);
 
@@ -1279,6 +1351,7 @@ async function boot() {
       // without P1 having to know who is listening.
       chosenSite = { site, entry, year: lastYear, needs: missionNeeds };
       mission.publishSite(chosenSite);
+      surfaceHud.set(chosenSite);
       const m = latLonToMap(R, site.lat, site.lon);
       hide();
       hud.hideScreen('select');
