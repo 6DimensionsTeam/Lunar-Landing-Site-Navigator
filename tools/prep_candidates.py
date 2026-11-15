@@ -67,6 +67,12 @@ MIN_SEPARATION_KM = 26.0   # about two hero tiles: distinct enough to be differe
 # How far below the highest ground in a patch a seed may sit. Ridges crest and fall away fast;
 # a seed far below the local high is on a slope, not a crest.
 SEED_BELOW_HIGH_M = 60.0
+# The survivability bar a site must clear to be called pre-selected, in hours of continuous
+# darkness. 318 h is the measured longest night at Malapert Massif, which NASA published as an
+# Artemis candidate region -- so the claim this encodes is "no worse than the worst region NASA
+# itself put forward", which is one sentence anybody can check. Sites past it are still measured
+# and still drawn on the map, as surveyed ground rather than as candidates.
+MAX_DARK_H = 318
 
 
 def decode_planes():
@@ -213,12 +219,24 @@ def main():
     step_h = emeta["step_hours"]
     years = range(emeta["start_year"], emeta["end_year"] + 1)
 
+    # Real calendar year bounds, leap years included, the same way tools/site_stats.py splits the
+    # named sites. An earlier version here stepped by a fixed 8766 h (the 365.25-day mean year),
+    # which drifts against the calendar and leaves each year's slice starting a little further
+    # from 1 January than the last. The assertion is what makes the drift impossible to
+    # reintroduce quietly: the per-year bounds must account for every sample in the ephemeris.
+    _leap = lambda y: y % 4 == 0 and (y % 100 != 0 or y % 400 == 0)
+    _bounds, _at = {}, 0
+    for _y in years:
+        _n = (366 if _leap(_y) else 365) * 24 // step_h
+        _bounds[_y] = (_at, _at + _n)
+        _at += _n
+    assert _at == len(ephem), f"year bounds cover {_at} samples, ephem has {len(ephem)}"
+
     def stats_by_year(lat, lon, hor, h0):
         """Per-year figures, the same way tools/site_stats.py splits the named sites."""
         out = {}
         for yr in years:
-            i0 = int((yr - emeta["start_year"]) * 8766 / step_h)
-            i1 = int((yr + 1 - emeta["start_year"]) * 8766 / step_h)
+            i0, i1 = _bounds[yr]
             seg = ephem[i0:i1]
             if len(seg) < 8:
                 continue
@@ -248,7 +266,12 @@ def main():
                 best = d
         return round(best, 1)
 
-    cands = []
+    # Measure every seed at full resolution first, then decide what the pool admits. The earlier
+    # version measured inside the loop that was already writing the final list, so sunlight,
+    # Earth link and darkness were annotations nothing could reject on -- "pre-selected" asserted
+    # only "landable ground the scan happened to seed", which is how a 146-day pit floor became
+    # a candidate on the strength of being flat.
+    measured = []
     for x, y in taken:
         x, y = float(x), float(y)
         half = meta["half_extent_m"] / 1000.0
@@ -259,9 +282,7 @@ def main():
         st = hz.stats(lat, lon, hor, h0, ephem, step_h)
         # keep the grid cell's own classification too, for the map's zone tint
         bucket = next((k for k, v in buckets.items() if (r, c) in v), "placed")
-        cands.append(dict(
-            id=f"D{len(cands) + 1:02d}",
-            en=f"DATA-SELECTED {len(cands) + 1:02d}",
+        measured.append(dict(
             source="data",
             bucket=bucket,
             lat=round(lat, 4), lon=round(lon, 3), elev_m=round(float(h0), 1),
@@ -275,9 +296,51 @@ def main():
             stats={k: (round(v, 2) if isinstance(v, float) else v) for k, v in st.items()},
             stats_by_year=stats_by_year(lat, lon, hor, h0),
         ))
-        print(f"{cands[-1]['id']} {bucket:8} {lat:8.3f} {lon:7.2f}  {cands[-1]['dist_pole_km']:6.1f} km  "
+
+    # The bar, and where it comes from: MAX_DARK_H is the measured longest night at Malapert
+    # Massif, which NASA published as an Artemis candidate region. A lander that can fly to
+    # Malapert must survive that night, so a site no darker than it demands no endurance NASA's
+    # own candidate set does not already demand. It is not a number we chose.
+    for cand in measured:
+        cand["survives"] = cand["stats"]["longest_dark_h"] <= MAX_DARK_H
+
+    # Ids follow position, not enumeration order, so a regeneration cannot silently renumber a
+    # site that a test or someone else's in-flight work already refers to by id.
+    kept = sorted((c for c in measured if c["survives"]),
+                  key=lambda c: (-c["stats"]["both_pct"], c["stats"]["longest_dark_h"]))
+    dropped = sorted((c for c in measured if not c["survives"]),
+                     key=lambda c: c["stats"]["longest_dark_h"])
+
+    cands, surveyed, used = [], [], set()
+    for group, bucket_list, label in ((kept, cands, "DATA-SELECTED"), (dropped, surveyed, "SURVEYED")):
+        for cand in group:
+            base = int(round(abs(cand["lat"]) * 100)) % 100
+            sid = f"D{base:02d}"
+            while sid in used:
+                base = (base + 1) % 100
+                sid = f"D{base:02d}"
+            used.add(sid)
+            cand["id"] = sid
+            cand["en"] = f"{label} {sid[1:]}"
+            bucket_list.append(cand)
+
+    for cand in cands + surveyed:
+        st = cand["stats"]
+        print(f"{'KEEP' if cand['survives'] else 'drop'} {cand['id']} {cand['bucket']:8} "
+              f"{cand['lat']:8.3f} {cand['lon']:7.2f}  {cand['dist_pole_km']:6.1f} km  "
               f"sun {st['sun_visible_pct']:5.1f}% earth {st['earth_visible_pct']:5.1f}% "
-              f"dark {st['longest_dark_h']:4d} h  fault {cands[-1]['fault_km']} km")
+              f"dark {st['longest_dark_h']:4d} h  fault {cand['fault_km']} km")
+
+    # The screen has to actually hold, or "pre-selected" is back to asserting nothing. And the
+    # per-year figures must stay under the whole-period one: that is the invariant the old wrap
+    # bug in horizon.py violated on thirteen of fifteen sites.
+    assert all(c["stats"]["longest_dark_h"] <= MAX_DARK_H for c in cands), "a kept site exceeds the darkness bar"
+    for cand in cands + surveyed:
+        worst = max(y["longest_dark_h"] for y in cand["stats_by_year"].values())
+        assert worst <= cand["stats"]["longest_dark_h"], (
+            f"{cand['id']}: one year reads {worst} h, darker than the whole period "
+            f"({cand['stats']['longest_dark_h']} h), which cannot happen -- the wrap bug is back")
+    print(f"\n{len(cands)} pre-selected, {len(surveyed)} surveyed but past the {MAX_DARK_H} h bar")
 
     payload = dict(
         observer_height_m=OBS_H, azimuth_step_deg=0.5,
@@ -287,13 +350,21 @@ def main():
             bucket_sizes={k: len(v) for k, v in buckets.items()},
             min_separation_km=MIN_SEPARATION_KM, max_slope_deg=MAX_SLOPE_DEG,
             min_grid_sun_pct="none: the grid mean cannot see a ridge crest; see the note in this file",
-            note="The grid screens candidates; every figure reported here comes from the "
-                 "full-resolution horizon profile against the ephemeris, the same pass that "
-                 "builds sites.json. Grid visibility values are 18.6 yr means and are kept only "
-                 "for reference.",
+            max_dark_h=MAX_DARK_H,
+            max_dark_h_provenance=(
+                "318 h is the measured longest continuous night at Malapert Massif, a candidate "
+                "region NASA published for Artemis. A site no darker than that asks no more "
+                "endurance of a lander than NASA's own candidate set already asks."
+            ),
+            note="The grid screens on slope and ground class; the full-resolution horizon pass "
+                 "against the ephemeris then measures every seed, and only sites that survive "
+                 "the darkness bar are admitted as candidates. Sites past the bar are reported "
+                 "under `surveyed`: real measured ground, drawn on the map, not pre-selected. "
+                 "Grid visibility values are 18.6 yr means and are kept only for reference.",
         ),
         faults=qmeta,
         candidates=cands,
+        surveyed=surveyed,
     )
     (OUT / "candidates.json").write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
     size = (OUT / "candidates.json").stat().st_size

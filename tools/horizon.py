@@ -128,18 +128,34 @@ def stats(lat, lon, hor, h0, ephem, step_h=1):
     lit = sun > 0.5
     # Longest continuous unlit spell: a solar disk visible fraction under 50% counts as unlit.
     # Counted in samples, then scaled by step_h, so it stays in hours whatever the ephemeris step is.
+    #
+    # This does NOT wrap the series head to tail. An earlier version concatenated `dark` with
+    # itself so that a spell straddling the end of the range would still be counted whole, but
+    # when this function is handed one year at a time (see prep_candidates.py's stats_by_year)
+    # that joins December's night to January's across a whole year of intervening daylight and
+    # reports the sum as one continuous spell. It inflated thirteen of the fifteen data sites by
+    # 222-270 h and produced per-year figures larger than the same site's whole-period figure,
+    # which cannot happen. The end of the range is a real boundary, as it is in site_stats.py's
+    # longest_run(), and a spell cut short by it is reported only as far as the data goes.
     dark = ~lit
     longest, run = 0, 0
-    for x in np.concatenate([dark, dark]):  # wrap head to tail so a run across the range boundary counts
+    for x in dark:
         run = run + 1 if x else 0
         longest = max(longest, run)
-    longest = min(longest, dark.size)
+    blind = ~earth
+    longest_blind, run_blind = 0, 0
+    for x in blind:
+        run_blind = run_blind + 1 if x else 0
+        longest_blind = max(longest_blind, run_blind)
     return dict(
         sun_mean_pct=float(sun.mean() * 100),
         sun_visible_pct=float(lit.mean() * 100),
         earth_visible_pct=float(earth.mean() * 100),
         both_pct=float((lit & earth).mean() * 100),
         longest_dark_h=int(round(longest * step_h)),
+        # sites.json carries this for the four NASA regions; the data sites were missing it, so
+        # any check reading longest_blind_h saw undefined for fifteen of nineteen sites.
+        longest_blind_h=int(round(longest_blind * step_h)),
     )
 
 
