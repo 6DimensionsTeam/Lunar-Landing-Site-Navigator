@@ -125,7 +125,7 @@ test('a weakness is only reported when the site actually failed on it', () => {
     assert.ok(s.weakness, `${s.site.id} failed ${100 - s.survived} worlds but reports no weakness`);
     // The named weakness must appear in its own failure messages, not be inferred.
     const reasons = s.deaths.flatMap((d) => d.why).join(' ');
-    const map = { 'Earth link': /Earth link/, 'Night length': /Longest dark/, 'Crater floor': /crater floor|too steep/, 'Ice distance': /shadow|ice/ };
+    const map = { 'Earth link': /Earth link/, 'Night length': /Longest night/, 'Crater floor': /crater floor|too steep/, 'Ice distance': /shadow|ice/ };
     if (map[s.weakness]) assert.match(reasons, map[s.weakness], `${s.site.id}: weakness not supported by its failures`);
   }
 });
