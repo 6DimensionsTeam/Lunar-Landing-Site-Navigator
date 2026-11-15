@@ -24,7 +24,7 @@ function syntheticEphemeris(year, maxH) {
   };
 }
 
-test('the one-day product minimum accepts24h and longer fractional stays', () => {
+test('the one-day product minimum accepts 24 hours and longer fractional stays', () => {
   assert.equal(MIN_STAY_H, 24);
   for (const stayH of [24, 24.25, 36.25, 168]) {
     assert.equal(config(84, stayH).stayH, stayH);
@@ -37,7 +37,7 @@ test('sub-day, nonnumeric and nonfinite stays are rejected without coercion', ()
   }
 });
 
-test('arrival bounds reserve24h from actual metadata and keep the ephemeris endpoint unchanged', () => {
+test('arrival bounds reserve 24 hours from metadata and keep the ephemeris endpoint unchanged', () => {
   const bounds = getMissionBounds(eph);
   assert.equal(eph.count, metadata.count);
   assert.equal(samples.length, metadata.count * 14);
@@ -48,7 +48,7 @@ test('arrival bounds reserve24h from actual metadata and keep the ephemeris endp
   assert.ok(bounds.maxArrivalH > eph.count, 'the bound is measured in hours, not sample indices');
 });
 
-test('the real fractional endpoint permits exactly24h and rejects any overshoot', () => {
+test('the real fractional endpoint permits exactly 24 hours and rejects any overshoot', () => {
   const latestArrival = eph.maxH - 24;
   const tail = config(latestArrival, 24);
   assert.equal(tail.arriveH + tail.stayH, eph.maxH);

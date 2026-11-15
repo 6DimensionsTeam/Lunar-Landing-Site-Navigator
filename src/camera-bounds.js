@@ -33,13 +33,16 @@ export function installCameraBounds({ camera, controls, tiles, radiusKm, heightA
   const stats = { checks: 0, evaluations: 0, corrections: 0, heightSamples: 0 };
   const sample = point => { stats.heightSamples++; return heightAt(point); };
   const finite = vector => Number.isFinite(vector.x) && Number.isFinite(vector.y) && Number.isFinite(vector.z);
+  // OrbitControls' spherical round trip introduces tiny coordinate noise even at rest.
+  // Keep the cached pose fixed until real movement accumulates beyond a tenth of a micrometre.
+  const samePosition = (a, b) => a.distanceToSquared(b) <= 1e-20;
   const clamp = MathUtils.clamp;
 
   function enforce() {
-    if (disposed || enforcing || !isActive()) return false;
+    if (disposed || enforcing || !controls.enabled || !isActive()) return false;
     stats.checks++;
     if (!finite(camera.position) || !finite(controls.target)) return false;
-    if (cached && camera.position.equals(cachedPosition) && controls.target.equals(cachedTarget) &&
+    if (cached && samePosition(camera.position, cachedPosition) && samePosition(controls.target, cachedTarget) &&
         camera.fov === cachedFov && camera.aspect === cachedAspect && camera.near === cachedNear && camera.zoom === cachedZoom &&
         controls.minDistance === lastMin && controls.maxDistance === lastMax) return false;
     enforcing = true; stats.evaluations++;
@@ -115,7 +118,7 @@ export function installCameraBounds({ camera, controls, tiles, radiusKm, heightA
       selectedTile = finalEdge + finalDistance * footprintGain < heroHalf * .92 ? 'hero' : 'inner';
       maxDistance = Math.max(minDistance, Math.min(userMax, ((selectedTile === 'hero' ? heroHalf : innerHalf) - finalEdge) / footprintGain));
       controls.minDistance = lastMin = minDistance; controls.maxDistance = lastMax = maxDistance;
-      const changed = !camera.position.equals(beforePosition) || !controls.target.equals(beforeTarget);
+      const changed = !samePosition(camera.position, beforePosition) || !samePosition(controls.target, beforeTarget);
       if (changed) stats.corrections++;
       cachedPosition.copy(camera.position); cachedTarget.copy(controls.target);
       cachedFov = camera.fov; cachedAspect = camera.aspect; cachedNear = camera.near; cachedZoom = camera.zoom; cached = true;
@@ -127,7 +130,7 @@ export function installCameraBounds({ camera, controls, tiles, radiusKm, heightA
     } finally { enforcing = false; }
   }
   function boundedUpdate(...args) {
-    if (!isActive()) return originalUpdate.apply(this, args);
+    if (!controls.enabled || !isActive()) return originalUpdate.apply(this, args);
     const before = enforce(), result = originalUpdate.apply(this, args), after = enforce();
     return result || before || after;
   }

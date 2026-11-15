@@ -110,3 +110,12 @@ test('disposal restores only owned methods and leaves later mode limits alone', 
   f.controls.minDistance = .06; f.controls.maxDistance = 1.2; f.state.active = false; f.bounds.dispose();
   assert.notEqual(f.controls.update, wrapped); assert.equal(f.controls.minDistance, .06); assert.equal(f.controls.maxDistance, 1.2); f.controls.dispose();
 });
+
+test('disabled controls add no clamp even if the supplied mode predicate is true', () => {
+  const f = fixture(); f.controls.enabled = false;
+  f.camera.position.set(900, -200, 600);
+  const before = f.camera.position.toArray(), target = f.controls.target.toArray();
+  assert.equal(f.bounds.enforce(), false);
+  assert.deepEqual(f.camera.position.toArray(), before); assert.deepEqual(f.controls.target.toArray(), target);
+  assert.equal(f.bounds.getSnapshot().stats.heightSamples, 0); f.cleanup();
+});
