@@ -7,7 +7,6 @@ const finite = (value, suffix = '', digits = 1) => Number.isFinite(value)
   ? `${value.toFixed(digits)}${suffix}` : 'Unknown';
 const siteName = site => site.en || site.name || site.id;
 const statusLabel = status => ({ feasible: 'Meets annual criteria', infeasible: 'Fails annual criteria', unknown: 'Unknown annual evidence' })[status];
-const statusSymbol = status => status === 'feasible' ? '+' : status === 'infeasible' ? '×' : '?';
 
 /** Local inspection only. Recommendations never commit a site or change the host mission clock. */
 export function createAnnualCalendar({ root, data, zones, eph, getMission = () => null, getYear = () => null }) {
@@ -17,7 +16,7 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
   const listeners = [];
   const hostInert = new Map();
   let opened = false, destroyed = false, preferCalendar = true, plan = null, planningYear = null, selected = null;
-  let buttons = [], timelineButtons = [], returnFocus = null;
+  let buttons = [], timelineTicks = [], returnFocus = null;
   let wasConcealed = root.hidden || root.classList.contains('out');
 
   function node(tag, className, text) {
@@ -105,6 +104,27 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
   const timeline = node('div', 'ac-timeline');
   timeline.setAttribute('role', 'group');
   timeline.setAttribute('aria-labelledby', timelineTitle.id);
+  const timelineSelection = node('p', 'ac-timeline-selection');
+  timelineSelection.setAttribute('aria-hidden', 'true');
+  const timelineTrack = node('div', 'ac-timeline-track');
+  const timelineBand = node('div', 'ac-year-band');
+  timelineBand.setAttribute('aria-hidden', 'true');
+  const timelinePointer = node('span', 'ac-year-pointer');
+  timelinePointer.setAttribute('aria-hidden', 'true');
+  const yearSlider = node('input', 'ac-year-slider');
+  yearSlider.type = 'range';
+  yearSlider.step = '1';
+  yearSlider.id = `${prefix}-year-slider`;
+  yearSlider.setAttribute('aria-labelledby', timelineTitle.id);
+  const timelineLegend = node('p', 'ac-timeline-legend');
+  timelineLegend.id = `${prefix}-timeline-legend`;
+  timelineLegend.append(node('span', 'ac-criteria-label', 'Annual criteria'));
+  for (const [state, label] of [['feasible', 'Meets'], ['infeasible', 'Fails'], ['unknown', 'Unknown']]) {
+    timelineLegend.append(node('span', `ac-timeline-key ac-${state}`, label));
+  }
+  yearSlider.setAttribute('aria-describedby', timelineLegend.id);
+  timelineTrack.append(timelineBand, timelinePointer, yearSlider);
+  timeline.append(timelineSelection, timelineTrack, timelineLegend);
   timelineSection.append(timelineHeading, timeline);
 
   const comparison = node('details', 'ac-comparison');
@@ -131,7 +151,7 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
   const live = node('p', 'ac-sr');
   live.setAttribute('role', 'status');
   live.setAttribute('aria-live', 'polite');
-  panel.append(header, overview, workspace, timelineSection, comparison, method, live);
+  panel.append(header, overview, timelineSection, workspace, comparison, method, live);
   shell.append(nav, panel);
   root.append(shell);
   const annualMap = createAnnualMap({ root: mapRoot, data, onSelect: id => {
@@ -176,7 +196,6 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
     root.classList.add('ac-calendar-open');
     panel.hidden = false;
     panel.scrollTop = 0;
-    timeline.scrollLeft = 0;
     mapButton.setAttribute('aria-pressed', 'false');
     calendarButton.setAttribute('aria-pressed', 'true');
     yearSelect.focus({ preventScroll: true });
@@ -226,7 +245,7 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
     updateTimeline(plan.rows[rowIndex]);
     annualMap.update({ cells: plan.yearSummaries[colIndex].cells, selectedId: cell.site.id, recommendedId: plan.recommendation?.site.id });
     live.textContent = `${siteName(cell.site)}, ${cell.year}. ${statusLabel(cell.status)}.`;
-    const target = focus === 'table' ? active : focus === 'timeline' ? timelineButtons[colIndex] : null;
+    const target = focus === 'table' ? active : null;
     if (target) {
       target.focus({ preventScroll: true });
       target.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
@@ -249,7 +268,7 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
         sentence = `An earlier annual match: ${earliest.year} at ${siteName(earliest.site)}.`;
       }
       copy.append(node('p', 'ac-copy', sentence));
-      const inspect = button('ac-inspect', 'Show recommendation');
+      const inspect = button('ac-inspect', 'Show result');
       inspect.dataset.acAction = 'recommendation';
       recommendation.append(copy, inspect);
     } else {
@@ -287,27 +306,35 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
     comparisonLabel.textContent = `Compare all ${plan.rows.length} sites`;
   }
   function renderTimeline() {
-    timelineButtons = plan.years.map(year => {
-      const item = button('ac-year-button');
+    yearSlider.min = String(plan.years[0]);
+    yearSlider.max = String(plan.years.at(-1));
+    yearSlider.disabled = plan.rows.length === 0;
+    timelineTrack.style.setProperty('--ac-year-count', String(plan.years.length));
+    timelineTicks = plan.years.map((year, index) => {
+      const item = node('span', 'ac-year-tick');
       item.dataset.acYear = String(year);
-      const symbol = node('span', 'ac-year-symbol');
-      symbol.setAttribute('aria-hidden', 'true');
-      item.append(symbol, node('span', 'ac-year-number', year));
+      item.setAttribute('aria-hidden', 'true');
+      item.dataset.major = String(index === 0 || index === plan.years.length - 1 || year % 5 === 0);
+      item.append(node('span', 'ac-year-number', year));
       return item;
     });
-    timeline.replaceChildren(...timelineButtons);
+    timelineBand.replaceChildren(...timelineTicks);
   }
   function updateTimeline(row) {
-    timelineTitle.textContent = `Years for ${siteName(row.site)}`;
+    const cell = row.cells[selected.col];
+    timelineTitle.textContent = `Timeline · ${siteName(row.site)}`;
     bestBadge.textContent = row.bestYear == null ? 'No confirmed annual fit' : `Catalog best ${row.bestYears.join(' · ')}`;
-    for (const [index, cell] of row.cells.entries()) {
-      const item = timelineButtons[index];
-      const active = index === selected.col;
-      item.className = `ac-year-button ac-${cell.status}`;
-      item.tabIndex = active ? 0 : -1;
-      item.setAttribute('aria-pressed', String(active));
-      item.setAttribute('aria-label', `${cell.year}: ${statusLabel(cell.status)}`);
-      item.firstElementChild.textContent = statusSymbol(cell.status);
+    yearSlider.value = String(cell.year);
+    yearSlider.setAttribute('aria-valuetext', `${cell.year}: ${statusLabel(cell.status)}, ${siteName(row.site)}`);
+    timelineSelection.textContent = `${cell.year} · ${statusLabel(cell.status)}`;
+    timelinePointer.dataset.year = String(cell.year);
+    // The pointer and native thumb share the centres of the equal annual segments.
+    timelinePointer.style.left = `${(selected.col + .5) / plan.years.length * 100}%`;
+    for (const [index, annual] of row.cells.entries()) {
+      const item = timelineTicks[index];
+      item.className = `ac-year-tick ac-${annual.status}`;
+      if (index === selected.col) item.setAttribute('aria-current', 'true');
+      else item.removeAttribute('aria-current');
     }
   }
   function renderTable() {
@@ -461,28 +488,13 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
   listen(overview, 'click', event => {
     if (event.target.closest('[data-ac-action="recommendation"]') && plan.recommendation) {
       pick(plan.recommendation);
-      workspace.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+      timelineSection.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
     }
   });
-  listen(timeline, 'click', event => {
-    const target = event.target.closest('button[data-ac-year]');
-    if (target && timeline.contains(target) && selected) {
-      pick(plan.rows[selected.row].cells[plan.years.indexOf(Number(target.dataset.acYear))]);
-    }
-  });
-  listen(timeline, 'keydown', event => {
-    const target = event.target.closest('button[data-ac-year]');
-    if (!target || !timeline.contains(target) || !selected) return;
-    let col = plan.years.indexOf(Number(target.dataset.acYear));
-    if (event.key === 'ArrowRight') col++;
-    else if (event.key === 'ArrowLeft') col--;
-    else if (event.key === 'Home') col = 0;
-    else if (event.key === 'End') col = plan.years.length - 1;
-    else return;
-    event.preventDefault();
-    event.stopPropagation();
-    col = Math.max(0, Math.min(plan.years.length - 1, col));
-    pick(plan.rows[selected.row].cells[col], { focus: 'timeline' });
+  listen(yearSlider, 'input', () => {
+    if (!selected) return;
+    const col = plan.years.indexOf(Number(yearSlider.value));
+    if (col >= 0) pick(plan.rows[selected.row].cells[col]);
   });
   listen(scroll, 'click', event => {
     const target = event.target.closest('button[data-ac-row]');

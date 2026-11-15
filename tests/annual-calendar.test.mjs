@@ -100,13 +100,27 @@ function planFor(f, fromYear = 2028) {
 function chooseSite(f, id) {
   const select = f.root.querySelector('.ac-site-select'); select.value = id; select.dispatch('change');
 }
-function yearButton(f, year) { return f.root.querySelector(`[data-ac-year="${year}"]`); }
+function yearTick(f, year) { return f.root.querySelector(`[data-ac-year="${year}"]`); }
+function inputYear(f, year) {
+  const slider = f.root.querySelector('.ac-year-slider');
+  slider.value = String(year); slider.dispatch('input');
+  return slider;
+}
 function assertSelection(f, id, year) {
   assert.equal(f.root.querySelector('.ac-site-select').value, id);
   assert.equal(f.root.querySelector('.ac-detail-year').textContent, String(year));
-  const selectedYears = f.root.querySelectorAll('.ac-year-button').filter(button => button.getAttribute('aria-pressed') === 'true');
+  const selectedYears = f.root.querySelectorAll('.ac-year-tick').filter(tick => tick.getAttribute('aria-current') === 'true');
   assert.equal(selectedYears.length, 1); assert.equal(selectedYears[0].dataset.acYear, String(year));
-  assert.equal(f.root.querySelectorAll('.ac-year-button').filter(button => button.tabIndex === 0).length, 1);
+  const slider = f.root.querySelector('.ac-year-slider');
+  assert.equal(Number(slider.value), year);
+  const pointer = f.root.querySelector('.ac-year-pointer');
+  assert.equal(pointer.dataset.year, String(year));
+  const [firstYear, lastYear] = f.data.sites.stats_years;
+  const expectedPosition = (year - firstYear + .5) / (lastYear - firstYear + 1) * 100;
+  assert.ok(Math.abs(Number.parseFloat(pointer.style.left) - expectedPosition) < 1e-9, 'pointer aligns with the selected annual segment');
+  const valueText = slider.getAttribute('aria-valuetext');
+  const site = pool.find(item => item.id === id);
+  assert.ok(valueText.includes(String(year)) && valueText.includes(site.en || site.name || site.id));
   const selectedMarks = f.root.querySelectorAll('.am-marker').filter(mark => mark.getAttribute('aria-pressed') === 'true');
   assert.equal(selectedMarks.length, 1); assert.equal(selectedMarks[0].dataset.siteId, id);
   for (const mark of f.root.querySelectorAll('.am-marker')) assert.match(mark.getAttribute('aria-label'), new RegExp(String(year)));
@@ -127,7 +141,7 @@ test('first reveal presents the recommended site on a real map and one timeline 
     assert.equal(f.root.querySelectorAll('.am-marker').length, pool.length);
     assert.equal(f.root.querySelector('.am-image').src, f.data.moonPolarUrl);
     assert.equal(f.root.querySelector('.ac-site-select').children.length, pool.length);
-    assert.equal(f.root.querySelectorAll('.ac-year-button').length, yearCount);
+    assert.equal(f.root.querySelectorAll('.ac-year-tick').length, yearCount);
     assert.equal(f.root.querySelector('.ac-comparison').open, false);
     assert.equal(f.root.querySelector('.ac-evidence').open, false);
     assert.equal(f.root.querySelectorAll('.ac-cell').length, pool.length * yearCount);
@@ -148,7 +162,7 @@ test('map, site selector, timeline and full comparison inspect the same actual s
     const site = pool.find(item => item.id !== plan.recommendation.site.id);
     f.root.querySelector(`[data-site-id="${site.id}"]`).click();
     assertSelection(f, site.id, plan.recommendation.year);
-    yearButton(f, firstYear).click(); assertSelection(f, site.id, firstYear);
+    inputYear(f, firstYear); assertSelection(f, site.id, firstYear);
     for (const cell of plan.yearSummaries[0].cells) {
       const mark = f.root.querySelector(`[data-site-id="${cell.site.id}"]`);
       assert.equal(mark.classList.contains(`am-${cell.status}`), true, `${cell.site.id} uses the displayed year's result`);
@@ -169,7 +183,7 @@ test('changing planning year updates the recommendation locally, preserves inspe
   const f = calendarFixture();
   try {
     await f.reveal(); const before = JSON.stringify(f.config), firstYear = sites.stats_years[0];
-    chooseSite(f, pool[0].id); yearButton(f, firstYear).click();
+    chooseSite(f, pool[0].id); inputYear(f, firstYear);
     const year = f.root.querySelector('.ac-year'); year.value = String(sites.stats_years[1]); year.dispatch('change');
     const expected = planFor(f, sites.stats_years[1]).recommendation;
     assertSelection(f, pool[0].id, firstYear);
@@ -183,20 +197,49 @@ test('changing planning year updates the recommendation locally, preserves inspe
   } finally { f.cleanup(); }
 });
 
-test('timeline keyboard navigation is bounded and retains focused nodes while updating the map', async () => {
+test('the full-span timeline precedes the map and derives chronological ticks and range bounds from metadata', async () => {
+  const f = calendarFixture();
+  try {
+    await f.reveal(); const plan = planFor(f);
+    const panel = f.root.querySelector('.ac-panel'), timeline = f.root.querySelector('.ac-timeline-section');
+    assert.ok(panel.children.indexOf(timeline) < panel.children.indexOf(f.root.querySelector('.ac-workspace')));
+    const slider = f.root.querySelector('.ac-year-slider');
+    assert.equal(slider.tagName, 'INPUT'); assert.equal(slider.type, 'range');
+    assert.equal(Number(slider.min), plan.years[0]); assert.equal(Number(slider.max), plan.years.at(-1));
+    assert.equal(Number(slider.step), 1);
+    assert.equal(slider.getAttribute('aria-labelledby'), f.root.querySelector('.ac-timeline-title').id);
+    assert.equal(f.root.querySelectorAll('.ac-year-slider').length, 1);
+    assert.equal(f.root.querySelector('.ac-timeline').querySelectorAll('button').length, 0, 'visual ticks are not a row of boxed year buttons');
+    const ticks = f.root.querySelectorAll('.ac-year-tick');
+    assert.deepEqual(ticks.map(tick => Number(tick.dataset.acYear)), plan.years);
+    assert.ok(ticks.every(tick => tick.getAttribute('aria-hidden') === 'true'), 'visual ticks do not duplicate native slider announcements');
+    for (const row of plan.rows) {
+      chooseSite(f, row.site.id);
+      for (const [index, cell] of row.cells.entries()) {
+        assert.equal(ticks[index].classList.contains(`ac-${cell.status}`), true, `${row.site.id}/${cell.year}`);
+      }
+    }
+  } finally { f.cleanup(); }
+});
+
+test('native range keyboard defaults remain available and resulting input values update the selected marker, map and card', async () => {
   const f = calendarFixture(); let hostKeys = 0; f.doc.body.addEventListener('keydown', () => hostKeys++);
   try {
-    await f.reveal(); const id = f.root.querySelector('.ac-site-select').value;
-    const original = f.root.querySelectorAll('.ac-year-button'), first = original[0]; first.focus();
-    const right = first.dispatch('keydown', { key: 'ArrowRight' });
-    assert.equal(right.defaultPrevented, true); assert.equal(hostKeys, 0);
-    assert.strictEqual(f.doc.activeElement, original[1]); assertSelection(f, id, sites.stats_years[0] + 1);
-    original[1].dispatch('keydown', { key: 'End' }); assert.strictEqual(f.doc.activeElement, original.at(-1));
-    original.at(-1).dispatch('keydown', { key: 'ArrowRight' }); assert.strictEqual(f.doc.activeElement, original.at(-1));
-    assertSelection(f, id, sites.stats_years[1]);
-    original.at(-1).dispatch('keydown', { key: 'Home' }); assert.strictEqual(f.doc.activeElement, original[0]);
-    original[0].dispatch('keydown', { key: 'ArrowLeft' }); assert.strictEqual(f.doc.activeElement, original[0]);
-    assertSelection(f, id, sites.stats_years[0]); assert.equal(hostKeys, 0);
+    await f.reveal(); const id = f.root.querySelector('.ac-site-select').value, before = JSON.stringify(f.config);
+    const slider = f.root.querySelector('.ac-year-slider'); slider.focus();
+    // The browser owns range stepping/clamping. Supply the input values its native
+    // Arrow/Home/End actions produce instead of reimplementing them in this fixture.
+    for (const [key, year] of [['Home', sites.stats_years[0]], ['ArrowRight', sites.stats_years[0] + 1],
+      ['End', sites.stats_years[1]], ['ArrowLeft', sites.stats_years[1] - 1], ['Home', sites.stats_years[0]]]) {
+      const event = slider.dispatch('keydown', { key });
+      assert.equal(event.defaultPrevented, false, `${key} must retain its native range behavior`);
+      inputYear(f, year); assertSelection(f, id, year);
+      assert.strictEqual(f.doc.activeElement, slider);
+      assert.strictEqual(f.root.querySelector('.ac-year-slider'), slider, 'updates preserve the native control');
+    }
+    inputYear(f, Math.floor((sites.stats_years[0] + sites.stats_years[1]) / 2));
+    assertSelection(f, id, Math.floor((sites.stats_years[0] + sites.stats_years[1]) / 2));
+    assert.equal(hostKeys, 0); assert.equal(JSON.stringify(f.config), before);
     assert.equal(f.root.querySelector('.ac-detail').scrollCalls?.length ?? 0, 0);
   } finally { f.cleanup(); }
 });
@@ -275,15 +318,14 @@ test('view preference survives conceal/reveal and reopening resets disclosure, s
     assert.equal(f.root.querySelector('.ac-panel').hidden, true, 'remember explicit survey preference');
     f.root.querySelector('[data-ac-view="calendar"]').click();
     f.root.querySelector('.ac-comparison').open = true;
-    f.root.querySelector('.ac-panel').scrollTop = 500; f.root.querySelector('.ac-timeline').scrollLeft = 100;
-    chooseSite(f, pool[0].id); yearButton(f, sites.stats_years[0]).click();
+    f.root.querySelector('.ac-panel').scrollTop = 500;
+    chooseSite(f, pool[0].id); inputYear(f, sites.stats_years[0]);
     f.root.hidden = true; await flushAttributes();
     assert.equal(f.header.inert, false); assert.equal(f.preInert.inert, true);
     await f.reveal(); const expected = planFor(f).recommendation;
     assert.equal(f.root.querySelector('.ac-panel').hidden, false);
     assert.equal(f.root.querySelector('.ac-comparison').open, false);
     assert.equal(f.root.querySelector('.ac-panel').scrollTop, 0);
-    assert.equal(f.root.querySelector('.ac-timeline').scrollLeft, 0);
     assertSelection(f, expected.site.id, expected.year);
   } finally { f.cleanup(); }
 });
@@ -291,9 +333,10 @@ test('view preference survives conceal/reveal and reopening resets disclosure, s
 test('missing annual evidence stays unknown on map, timeline and details; an absent optional outage is not invented', async () => {
   const f = calendarFixture({ unknown: true, missingOutage: true });
   try {
-    await f.reveal(); chooseSite(f, pool[0].id); yearButton(f, 2026).click();
+    await f.reveal(); chooseSite(f, pool[0].id); inputYear(f, 2026);
     assert.equal(f.root.querySelector('.ac-verdict').classList.contains('ac-unknown'), true);
-    assert.equal(yearButton(f, 2026).classList.contains('ac-unknown'), true);
+    assert.equal(yearTick(f, 2026).classList.contains('ac-unknown'), true);
+    assert.match(f.root.querySelector('.ac-year-slider').getAttribute('aria-valuetext'), /Unknown/);
     assert.equal(f.root.querySelector(`[data-site-id="${pool[0].id}"]`).classList.contains('am-unknown'), true);
     assert.doesNotMatch(f.root.querySelector('.ac-detail').textContent, /PASS/);
     assert.match(f.root.querySelector('.ac-selection-note').textContent, /missing/);
@@ -320,13 +363,13 @@ for (const width of [390, 720, 1280]) {
     try {
       await f.reveal(); const marker = f.root.querySelector('.am-marker'); marker.click();
       assert.strictEqual(f.doc.activeElement, marker);
-      const year = yearButton(f, sites.stats_years[0]); year.click(); assert.strictEqual(f.doc.activeElement, year);
+      const year = f.root.querySelector('.ac-year-slider'); year.focus(); inputYear(f, sites.stats_years[0]); assert.strictEqual(f.doc.activeElement, year);
       const site = f.root.querySelector('.ac-site-select'); site.focus(); chooseSite(f, pool.at(-1).id);
       assert.strictEqual(f.doc.activeElement, site);
       assert.equal(f.root.querySelector('.ac-detail').scrollCalls?.length ?? 0, 0);
       const inspect = f.root.querySelector('[data-ac-action="recommendation"]'); inspect.click();
       assert.strictEqual(f.doc.activeElement, inspect);
-      assert.equal(f.root.querySelector('.ac-workspace').scrollCalls.at(-1).block, 'nearest');
+      assert.equal(f.root.querySelector('.ac-timeline-section').scrollCalls.at(-1).block, 'nearest');
       assert.equal(f.root.querySelector('.ac-detail').scrollCalls?.length ?? 0, 0);
       assert.equal(f.root.querySelector('.ac-comparison').open, false);
       const comparison = f.root.querySelector('.ac-comparison'); comparison.open = true;
