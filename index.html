@@ -389,12 +389,6 @@
         <div class="ttl w-ttl">
           <p class="ttl-k"><b>TRIAL</b> <span>SURVIVAL, NOT SCORE</span></p>
           <h1>Which site is still standing?</h1>
-          <p class="ttl-d">The same measured ground, put through one hundred different sets of
-            mission requirements. A requirement set is an arrival year drawn from the measured
-            2026&ndash;2040 record plus the four demands the selector already enforces. The site
-            that meets every demand in the most sets wins, which is not always the site with the
-            best single score. Nothing here changes the site you picked or the mission you set:
-            it is a read-only comparison you can leave at any time.</p>
         </div>
 
         <div class="w-stage">
@@ -421,10 +415,23 @@
                verdict sentence and the provenance note are what is left. -->
           <div class="w-tally">
             <p class="w-note" id="w-verdict">Running&hellip;</p>
-            <p class="credit">Counts over the sets listed, not probabilities: nothing here weights
-              one requirement set as more likely than another. Year-to-year differences are
-              measured (LOLA horizon profiles against DE421); the requirement combinations are the
-              same controls the mission screen offers.</p>
+            <!-- What a set is, and what each lane's number means, stated once and plainly. The
+                 long paragraph that used to sit under the title said none of this, and was
+                 hidden outright by CSS, so the screen arrived with no explanation at all. -->
+            <dl class="rows w-defs">
+              <div><dt>What one set is</dt><dd>One arrival year from 2026&ndash;2040, plus one
+                combination of the demands the mission screen offers: direct Earth link, crater
+                floor, ice within reach, and a night limit of 204, 222, 273, 297, 318, 366 or
+                405&nbsp;h. The same measured ground is scored under each.</dd></div>
+              <div><dt>The number at a lane's right</dt><dd>How many of the 100 sets that site met
+                every requirement in. A lane that stops early was ruled out for the rest.</dd></div>
+              <div><dt>Most often ruled out on</dt><dd>The one requirement that eliminated that site
+                in more sets than any other.</dd></div>
+            </dl>
+            <p class="credit">Nothing here weights one set as more likely than another, so these
+              are counts, not probabilities. Year-to-year differences are measured (LOLA horizon
+              profiles against DE421); the requirement combinations are the same controls the
+              mission screen offers.</p>
           </div>
         </div>
 

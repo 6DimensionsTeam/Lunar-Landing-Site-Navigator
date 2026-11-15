@@ -1569,8 +1569,13 @@ async function boot() {
           tip.hidden = false;
           tipZone.textContent = z ? z.name : 'OUTSIDE SURVEY GRID';
           tipSlope.textContent = z ? `${z.slopeDeg.toFixed(1)}°` : '—';
-          tipSun.textContent = z ? `${z.sun.toFixed(0)}%` : '—';
-          tipEarth.textContent = z ? `${z.earth.toFixed(0)}%` : '—';
+          // zones.js decodes sun and earth against a 0-1 scale, not 0-100 (see
+          // zones.json's scales.sun/earth, lo 0.0 hi 1.0). Printing them through toFixed(0)
+          // without scaling collapsed every cell to "0%" or "1%": the only readout on this
+          // map showed a figure a hundred times too small, next to candidate rows that show
+          // the same quantity correctly as a percentage.
+          tipSun.textContent = z ? `${(z.sun * 100).toFixed(0)}%` : '—';
+          tipEarth.textContent = z ? `${(z.earth * 100).toFixed(0)}%` : '—';
           tipLL.textContent = fmtLatLon(hit.lat, hit.lon);
           if (tipKey !== tipZone.textContent) {
             tipKey = tipZone.textContent;
