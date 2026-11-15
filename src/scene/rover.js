@@ -20,6 +20,14 @@ import { createRocks } from './rocks.js';
 const PATCH = { half: 480, step: 4, trim: 470, morph0: 380, morph1: 440, recenter: 100 };
 // Speeds are faster than the real vehicle for the demo: the real one is very slow, which is no fun to drive here
 const DRIVE = { vMax: 1.2, vRev: 0.6, acc: 0.8, brake: 2.2, steerRate: 1.6, yawMax: 0.55, kMax: 0.65, crab: 0.75, slopeWarn: 15, slopeMax: 25, range: 1600 };
+// User speed setting scales only the target speeds; acc/brake/steerRate stay put so the rover keeps its inertia
+// real: NASA VIPER's top speed, about 0.8 km/h (0.2 m/s); the model is the Space ROS rover after VIPER
+export const SPEED_LIMITS = { min: 0.1, real: 0.2 };
+let speedScale = 4;
+// Mission-clock speed-up (1 = real time): the rover covers ground that much faster, accelerating with it
+let timeScale = 1;
+// Heading rate cap in drive mode, so steering stays usable at very high speeds
+const W_MAX = 1.5;
 const SH = { half: 2.8, size: 1024, back: 8, far: 34 };
 const LIFT = THREE.MathUtils.degToRad(5);          // matches uLift in the terrain shader: the Sun is raised 5° for shading
 
@@ -430,13 +438,14 @@ export async function createRover(renderer, glbUrl, ctx) {
     const sf = 1 - 0.6 * THREE.MathUtils.smoothstep(st.slope, DRIVE.slopeWarn, DRIVE.slopeMax);
     const ramp = (cur, tgt, a) => cur + THREE.MathUtils.clamp(tgt - cur, -a * dt, a * dt);
     if (st.mode === 'point') {
-      const tw = ready ? DRIVE.yawMax * str : 0;
+      // capped: a 10x point turn spins faster than the eye can follow
+      const tw = ready ? DRIVE.yawMax * str * Math.min(speedScale, 2) : 0;
       st.w = ramp(st.w, tw, input.brake ? 2.5 : 1.2);
-      st.v = ramp(st.v, 0, DRIVE.brake);
+      st.v = ramp(st.v, 0, DRIVE.brake * timeScale);
     } else {
-      const tv = ready ? (thr >= 0 ? DRIVE.vMax : DRIVE.vRev) * thr * sf : 0;
-      st.v = ramp(st.v, tv, input.brake || Math.sign(tv) !== Math.sign(st.v) && Math.abs(st.v) > 0.02 ? DRIVE.brake : DRIVE.acc);
-      st.w = st.mode === 'drive' ? st.v * st.kappa : 0;
+      const tv = ready ? (thr >= 0 ? DRIVE.vMax : DRIVE.vRev) * thr * sf * speedScale * timeScale : 0;
+      st.v = ramp(st.v, tv, (input.brake || Math.sign(tv) !== Math.sign(st.v) && Math.abs(st.v) > 0.02 ? DRIVE.brake : DRIVE.acc) * timeScale);
+      st.w = st.mode === 'drive' ? THREE.MathUtils.clamp(st.v * st.kappa, -W_MAX, W_MAX) : 0;
     }
     // Integrate, then check slope, rocks and working range; back out if blocked
     const ox = st.x, oy = st.y, oh = st.hdg;
@@ -792,6 +801,10 @@ export async function createRover(renderer, glbUrl, ctx) {
     pass, scene, camera, state: st, mast, wheels: WHEELS, mass, DIM, MODE_EN,
     step, sync, renderPip, pick, label, info, screen, target, headingDir, view, clampCam, setActive, up: up0,
     setInput: (o) => Object.assign(input, o),
+    // top forward speed in m/s
+    setSpeed: (ms) => { speedScale = Math.max(ms, SPEED_LIMITS.min) / DRIVE.vMax; },
+    setTimeScale: (k) => { timeScale = Math.max(1, k); },
+    speed: () => speedScale * DRIVE.vMax,
     toggleLights: () => { st.hlOn = !st.hlOn; st.hlAuto = false; return st.hlOn; },
     dragMast: (dx, dy) => { mast.manual = 8; mast.sweep = 0; mast.tp = THREE.MathUtils.clamp(mast.tp - dx, -3.4, 3.4); mast.tt = THREE.MathUtils.clamp(mast.tt + dy, -1.2, 1.2); },
     react: (p) => { if (p.group === 'mast') { mast.sweep = 6; mast.manual = 0; } else if (p.group === 'wheel') demo = 4.6; },
