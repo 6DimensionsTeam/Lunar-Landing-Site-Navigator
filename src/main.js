@@ -375,6 +375,18 @@ async function boot() {
   // Set by the P1 block when a site is committed on the map; read here so the default-entry
   // path can tell whether a real choice has already been made.
   let chosenSiteRef = () => null;
+  // Where the surface view stands. The committed site if there is one, otherwise Site A, which is
+  // where rig.landing() puts the camera when it is given no position. The camera, the readout,
+  // the rover and the button label all read this one answer; they used to decide separately, so
+  // after committing to one site the Descend button flew to A while the panels described B.
+  const surfaceTarget = () => chosenSiteRef()?.site || sites.byId('A');
+  let roverAtId = 'A';
+  const placeRover = (site, force) => {
+    if (!force && roverAtId === site.id) return;   // already parked there: keep its odometer and tracks
+    rover.moveTo(sites.byId(site.id) || site);
+    roverAtId = site.id;
+  };
+  const syncDescend = () => hud.bind('desc-label', `Descend to Site ${surfaceTarget()?.id ?? 'A'}`);
   // The same evaluation the map's list rows carry, so a default entry shows a verdict computed
   // the same way rather than a second opinion.
   const defaultEntryFor = (site) => rankSites([site], zones, null, {})[0];
@@ -487,7 +499,12 @@ async function boot() {
     orbit: { minDistance: 0.06, maxDistance: 1.2, minPolarAngle: THREE.MathUtils.degToRad(15), maxPolarAngle: THREE.MathUtils.degToRad(150), autoRotate: true, autoRotateSpeed: 0.25 },
   };
   let from = 'home', to = 'home';
-  const poseOf = (m) => (m === 'explore' ? rig.landing(aspect()) : m === 'orbit' ? rig.orbit(aspect(), station.place) : rig.home(aspect()));
+  const landingPose = () => {
+    const t = surfaceTarget();
+    if (!t || t.id === 'A') return rig.landing(aspect());   // Site A keeps its crater-rim framing
+    return rig.landing(aspect(), latLonToMap(R, t.lat, t.lon));
+  };
+  const poseOf = (m) => (m === 'explore' ? landingPose() : m === 'orbit' ? rig.orbit(aspect(), station.place) : rig.home(aspect()));
   function go(target) {
     if (mode === 'fly' || mode === target || mode === 'rover') return;
     // Whoever called this is taking the screen, so the descent's own loop steps aside and the
@@ -759,9 +776,11 @@ async function boot() {
   // not at: the panels describe wherever the camera actually stands, so they are filled for the
   // default landing site too, not only for a site committed on the map.
   const enterSurface = () => {
-    if (!chosenSiteRef()) {
-      const a = sites.byId('A');
-      if (a) surfaceHud.set({ site: a, entry: defaultEntryFor(a), year: null, needs: {} });
+    const t = surfaceTarget();
+    if (t) {
+      // A committed site already filled the panels in descendTo; the default needs filling here.
+      if (!chosenSiteRef()) surfaceHud.set({ site: t, entry: defaultEntryFor(t), year: null, needs: {} });
+      placeRover(t);
     }
     go('explore');
   };
@@ -770,6 +789,7 @@ async function boot() {
   hud.onOrbit(() => { refreshOrbit(); go('orbit'); });
   hud.onOrbitBack(() => go('home'));
   hud.onDescend(enterSurface);
+  syncDescend();
   hud.onRover(() => enterRover());
   hud.onRoverBack(() => leaveRover());
   hud.onLights(() => rover.toggleLights());
@@ -1490,7 +1510,8 @@ async function boot() {
       surfaceHud.set(chosenSite);
       chosenSiteRef = () => chosenSite;
       // The rover belongs at the site the user committed to, not permanently at point A.
-      rover.moveTo(sites.byId(site.id) || site);
+      placeRover(site, true);
+      syncDescend();
       const m = latLonToMap(R, site.lat, site.lon);
       hide();
       hud.hideScreen('select');
