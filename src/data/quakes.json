@@ -1,0 +1,147 @@
+{
+ "meta": {
+  "count": 9,
+  "grid_half_extent_km": 151.68,
+  "kept": "scarps with at least one mapped point inside the zone grid",
+  "dropped_outside_grid": 66,
+  "meaning": "Mapped young thrust faults (lobate scarps). A hazard proxy: proximity to active faults, not a prediction of shaking. No south-polar event catalogue exists.",
+  "source": "Spatial and temporal distribution of lobate scarps in the lunar south polar region, GRL 2022, doi:10.1029/2022GL098505, Zenodo 6624114, CC-BY 4.0"
+ },
+ "scarps": [
+  {
+   "id": "Ibn Bajja_S_5",
+   "lat": -86.834,
+   "lon": 141.782,
+   "start": [
+    -86.8563,
+    141.258
+   ],
+   "end": [
+    -87.2375,
+    45.0
+   ],
+   "trace_km": 2.55,
+   "dist_pole_km": 96.0
+  },
+  {
+   "id": "Ibn Bajja_S_6",
+   "lat": -86.7777,
+   "lon": 152.5005,
+   "start": [
+    -86.7417,
+    152.1871
+   ],
+   "end": [
+    -87.9631,
+    45.0
+   ],
+   "trace_km": 2.76,
+   "dist_pole_km": 97.7
+  },
+  {
+   "id": "Ibn Bajja_S_7",
+   "lat": -86.7043,
+   "lon": 135.9856,
+   "start": [
+    -86.7158,
+    135.6032
+   ],
+   "end": [
+    -86.7813,
+    45.0
+   ],
+   "trace_km": 1.5,
+   "dist_pole_km": 100.0
+  },
+  {
+   "id": "Ibn Bajja_S_4",
+   "lat": -86.677,
+   "lon": 146.8108,
+   "start": [
+    -86.6288,
+    142.0393
+   ],
+   "end": [
+    -87.5072,
+    45.0
+   ],
+   "trace_km": 16.23,
+   "dist_pole_km": 100.8
+  },
+  {
+   "id": "Ibn Bajja_S_2",
+   "lat": -86.677,
+   "lon": 146.8108,
+   "start": [
+    -86.6288,
+    142.0393
+   ],
+   "end": [
+    -87.5072,
+    45.0
+   ],
+   "trace_km": 3.01,
+   "dist_pole_km": 100.8
+  },
+  {
+   "id": "Ibn Bajja_S_3",
+   "lat": -86.6443,
+   "lon": 141.9547,
+   "start": [
+    -86.6477,
+    142.2302
+   ],
+   "end": [
+    -87.1104,
+    45.0
+   ],
+   "trace_km": 1.09,
+   "dist_pole_km": 101.8
+  },
+  {
+   "id": "Ibn Bajja_S_1",
+   "lat": -86.5894,
+   "lon": 140.9804,
+   "start": [
+    -86.6027,
+    140.8254
+   ],
+   "end": [
+    -87.0357,
+    45.0
+   ],
+   "trace_km": 4.9,
+   "dist_pole_km": 103.5
+  },
+  {
+   "id": "Ibn Bajja_S_8",
+   "lat": -86.3828,
+   "lon": 151.8743,
+   "start": [
+    -86.3979,
+    150.0299
+   ],
+   "end": [
+    -87.5157,
+    45.0
+   ],
+   "trace_km": 4.7,
+   "dist_pole_km": 109.7
+  },
+  {
+   "id": "Amundsen",
+   "lat": -85.2349,
+   "lon": 313.8169,
+   "start": [
+    -85.3716,
+    316.6061
+   ],
+   "end": [
+    -85.0226,
+    314.3688
+   ],
+   "trace_km": 18.25,
+   "dist_pole_km": 144.6
+  }
+ ]
+}

@@ -1,10 +1,9 @@
-export function offlineAnalysis(result) {
-  const { point, zone, score, blockers } = result;
-  return `Selected location: ${point.lat.toFixed(3)}° latitude, ${point.lon.toFixed(3)}° longitude. ` +
-    (score == null ? 'This location is outside the mapped evaluation coverage; a suitability score is unavailable. ' :
-      `The area-based recommendation is ${result.stars}/5 stars (${score}/100). Solar visibility is ${zone.sun.toFixed(1)}%, Earth visibility ${zone.earth.toFixed(1)}%, and mapped slope ${zone.slopeDeg.toFixed(1)}°. `) +
-    (zone?.note ? zone.note + ' ' : '') + blockers.join(' ') +
-    ' These grid averages do not establish landing safety or mission-time continuity. Ice likelihood is not a confirmed resource deposit.';
+export function offlineAnalysis({site, entry, year}) {
+  const st=entry.stats, fault=entry.seismic;
+  return `${site.en} (${site.source === 'data' ? 'DATA-SELECTED' : 'NASA CANDIDATE'}) scores ${(entry.score*100).toFixed(0)}/100 using the shared ranking. ${year == null ? 'Long-term' : year+' annual'} sunlight ${st.sun_visible_pct.toFixed(1)}%, Earth visibility ${st.earth_visible_pct.toFixed(1)}%, simultaneous visibility ${st.both_pct.toFixed(1)}%; longest darkness ${st.longest_dark_h} h. `+
+    (entry.fails.length ? 'Requirements not met: '+entry.fails.join('; ')+'. ' : 'Meets the configured screening requirements. ')+
+    (fault ? `Nearest mapped lobate scarp: ${fault.distanceKm.toFixed(1)} km (south-polar projection approximation). ` : 'Fault proximity unavailable. ')+
+    'Fault proximity is a hazard proxy, not an event catalogue or proof of safety. Magnitude and recurrence are unknown. The Earth-link screening threshold does not guarantee uninterrupted mission-time contact. Source: GRL 2022, doi:10.1029/2022GL098505; Zenodo 6624114; CC-BY 4.0.';
 }
 export async function analyze(result, messages, { url, model, key } = {}) {
   const fallback = offlineAnalysis(result);

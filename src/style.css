@@ -149,7 +149,8 @@ body {
 }
 .topbar p { margin: 0; }
 /* hairline across the middle, a short vertical tick at each end */
-#home .topbar::after {
+#home .topbar::after,
+#select .topbar::after {
   content: '';
   order: 1;
   flex: 1;
@@ -619,6 +620,10 @@ body {
 #orbit .topbar,
 #rover .topbar { justify-content: space-between; }
 .rover-cta { position: absolute; right: var(--pad); bottom: var(--pad); }
+/* On the surface, the two ways onward sit stacked above the rover entry: back up to the map,
+   or forward into the site's analysis. Without them arriving here from the map is a dead end. */
+.sitemap-cta { position: absolute; left: var(--pad); bottom: calc(var(--pad) + 3.4em); }
+.analysis-cta { position: absolute; left: var(--pad); bottom: var(--pad); }
 
 /* ---------- orbital station ---------- */
 /* station card: upper left, red bar + large name + latin designation */
@@ -647,10 +652,125 @@ body {
 .legend-rows dt { display: flex; align-items: center; gap: 0.6em; }
 .legend-rows .swatch { display: inline-block; width: 0.9em; height: 0.9em; border: 1px solid var(--line-hi); flex: none; }
 #select .cta-stack { justify-self: center; align-self: end; gap: 0.6em; }
+/* The title block on this screen sits over lit terrain rather than over sky, where the
+   text shadow the other screens rely on is not enough on its own. A flat translucent
+   black panel behind it, the same one the dock panels use, rather than a heavier scrim. */
+#select .ttl {
+  padding: 0.9em 1.2em 1em;
+  padding-left: 1.5em;
+  background: linear-gradient(90deg, rgba(0, 0, 0, 0.72), rgba(0, 0, 0, 0.45) 72%, transparent);
+}
+#select .ttl-d { color: var(--fg); }
 /* site chip over the globe: identical to the home screen's own .site marker, so the two
    views read as one survey rather than a 3D viewport bolted on next to a 2D one */
 #sel-sites { position: absolute; inset: 0; pointer-events: none; }
 #sel-sites .site { pointer-events: none; }
+/* When two candidates project close together the name is pushed clear along the screen's y
+   axis while the square stays on the site, and this hairline keeps the two tied together --
+   the same leader the body and part labels use elsewhere. Drawn only when the name has
+   actually been moved, so a label sitting on its own anchor has no stub hanging off it. */
+#sel-sites .site .lead { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; visibility: hidden; }
+#sel-sites .site.lead-on .lead { visibility: visible; }
+#sel-sites .site .lead polyline { fill: none; stroke: var(--line-hi); stroke-width: 1; }
+/* Coordinate tape on the left edge of the map: a graduated scale in the map's own units,
+   positioned by the script at the distance each mark actually represents, so the cap reads
+   as a measured surface rather than an unlabelled picture. */
+.tape {
+  position: absolute;
+  left: 34px;
+  top: 0;
+  bottom: 0;
+  width: 76px;
+  pointer-events: none;
+}
+.tape i {
+  position: absolute;
+  left: 0;
+  width: 9px;
+  height: 1px;
+  background: rgba(242, 244, 245, 0.45);
+}
+.tape i:nth-child(even) { width: 5px; }
+.tape i::after {
+  content: attr(data-km);
+  position: absolute;
+  left: 13px;
+  top: -0.6em;
+  font: 600 0.72em/1 var(--sans);
+  letter-spacing: 0.1em;
+  color: var(--fg2);
+  text-shadow: 0 0 5px #000;
+  white-space: nowrap;
+}
+/* unit caption, above the graduations rather than across them */
+.tape::after {
+  content: 'km FROM POLE';
+  position: absolute;
+  left: 0;
+  top: 0;
+  font: 600 0.66em/1 var(--sans);
+  letter-spacing: 0.14em;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+/* Ranked site row: the verdict is the first thing read, then the figures, then the reason.
+   A failing site is dimmed rather than hidden -- knowing why a site was ruled out is as
+   useful as knowing which one won, and a list that silently drops entries is untrustworthy. */
+#sel-site-list div {
+  display: block;
+  padding: 0.42em 0;
+  border-top: 1px solid rgba(242, 244, 245, 0.13);
+  cursor: pointer;
+}
+#sel-site-list div:first-child { border-top: 0; }
+#sel-site-list dt {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  font: 700 0.92em/1 var(--sans);
+  letter-spacing: 0.06em;
+  color: var(--fg);
+}
+#sel-site-list dt em {
+  margin-left: auto;
+  padding: 0.2em 0.4em 0.16em;
+  font: 700 0.72em/1 var(--sans);
+  font-style: normal;
+  letter-spacing: 0.12em;
+  color: #fff;
+}
+#sel-site-list div.ok dt em { background: var(--ok); color: #111; }
+#sel-site-list div.no dt em { background: var(--red); }
+#sel-site-list dd {
+  margin: 0.32em 0 0;
+  display: block;
+  font: 600 0.84em/1.35 var(--sans);
+  letter-spacing: 0.04em;
+}
+#sel-site-list .fig { display: block; color: var(--fg2); }
+#sel-site-list .why { display: block; margin-top: 0.15em; color: var(--dim); }
+#sel-site-list div.no .fig,
+#sel-site-list div.no .why { color: rgba(139, 151, 158, 0.72); }
+#sel-site-list div.sel { background: rgba(242, 244, 245, 0.07); }
+#sel-site-list div.sel dt { color: #fff; }
+
+/* ---------- site analysis ---------- */
+.analysis-panel { grid-area: sites; justify-self: start; width: var(--dock-w); box-sizing: border-box; }
+.analysis-panel h2::before { content: ''; width: 0.55em; height: 0.55em; background: var(--fg); }
+.analysis-ai { grid-area: live; justify-self: end; width: var(--dock-w); box-sizing: border-box; }
+/* the requirement verdicts are the point of the panel: a pass/fail block per requirement */
+#an-reqs ddd, #an-reqs dd { margin: 0; }
+#an-reqs div { align-items: flex-start; }
+#an-reqs dd { flex-direction: column; align-items: flex-end; gap: 0.2em; text-align: right; }
+#an-reqs .val { font: 600 0.86em/1 var(--sans); color: var(--fg2); }
+.an-text { margin: 0; font: 500 0.95em/1.62 var(--sans); letter-spacing: 0.02em; color: var(--fg); }
+/* The generated verdict is long ("Suitable as configured") and the subtitle carries a whole
+   line of coordinates, so this block needs more room than the shared title rule gives it. */
+#analysis .ttl { width: min(64vw, 900px); }
+#analysis .ttl h1 { margin-top: 0.25em; }
+#analysis .ttl .ttl-en { margin-top: 0.7em; }
+
 .hover-tip {
   position: absolute;
   left: 0;
@@ -665,10 +785,24 @@ body {
   will-change: transform;
 }
 .hover-tip b { display: block; margin: 0 0 0.4em; font: 700 0.95em/1 var(--sans); letter-spacing: 0.1em; color: var(--fg); }
+/* three fields side by side, each a label over its value. The rows are div children of a
+   dl, which is what dt and dd are allowed to sit inside; the generic .rows rules lay a row
+   out horizontally with the value pushed to the far end, which is not this shape. */
 .hover-tip .rows { display: flex; gap: 1.1em; margin: 0; }
-.hover-tip .rows > span { display: flex; flex-direction: column; gap: 0.2em; }
+.hover-tip .rows > div { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 0.2em; }
 .hover-tip dt { font: 600 0.72em/1 var(--sans); letter-spacing: 0.12em; color: var(--dim); }
 .hover-tip dd { margin: 0; font: 600 0.95em/1 var(--sans); color: var(--fg2); }
+/* position of the point under the cursor, in the tabular face so the digits do not jitter
+   as it moves */
+.tip-ll {
+  margin: 0.5em 0 0;
+  padding-top: 0.45em;
+  border-top: 1px solid rgba(242, 244, 245, 0.13);
+  font: 500 0.8em/1 var(--sans);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.06em;
+  color: var(--dim);
+}
 #orbit .live h2 i { min-width: 2em; }
 .back {
   display: flex;

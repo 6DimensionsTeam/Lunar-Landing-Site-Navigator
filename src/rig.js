@@ -68,12 +68,21 @@ export function createRig({ R, camera, eph, groundAt, heightAt, crater }) {
 
   // Landing pose and the OrbitControls target (crater centre at rim height, same lateral offset as the pose, view parallel to the bisector).
   // The final orientation uses world +y as up, matching OrbitControls, so the handover does not jump
-  function landing(aspect) {
+  //
+  // `at` names the ground to stand off from, in map km, and defaults to the measured crater.
+  // Passing a candidate site's own map coordinate is what lets the site list fly to that site
+  // rather than always to Shackleton. `aimH` is the height to look at: the measured rim for
+  // the crater, and for anywhere else the ground there plus a little, since only Shackleton
+  // has a rim height measured off the DEM.
+  function landing(aspect, at = crater.center, aimH = null) {
     const { fwd, right } = axes();
-    const m = crater.center.clone().addScaledVector(fwd, -LAND.back).addScaledVector(right, LAND.side);
+    const m = at.clone().addScaledVector(fwd, -LAND.back).addScaledVector(right, LAND.side);
     const pos = groundAt(m, LAND.alt);
-    const tm = crater.center.clone().addScaledVector(right, LAND.side);
-    const target = groundAt(tm, crater.rimH - heightAt(tm));
+    const tm = at.clone().addScaledVector(right, LAND.side);
+    const lift = aimH != null ? aimH - heightAt(tm)
+               : at === crater.center ? crater.rimH - heightAt(tm)
+               : 0.4;                                   // 400 m above local ground
+    const target = groundAt(tm, lift);
     const quat = lookQuat(pos, target.clone().sub(pos).normalize(), new THREE.Vector3(0, 1, 0));
     return { pos, quat, fov: homeFov(aspect), target };
   }
