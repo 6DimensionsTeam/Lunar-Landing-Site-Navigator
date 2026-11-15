@@ -1,5 +1,6 @@
 import { buildAnnualPlan } from './annual-planner.js';
 import { createAnnualMap } from './annual-map.js';
+import { commBar } from './rank.js';
 import './annual-calendar.css';
 
 let instanceCount = 0;
@@ -150,7 +151,11 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
   const method = node('details', 'ac-method');
   method.append(node('summary', '', 'About these estimates'));
   method.append(node('p', '', 'The catalog summarizes each calendar year. These estimates screen annual conditions; they do not predict an exact launch date or conditions during a selected stay.'));
-  method.append(node('p', '', 'The existing ranking uses proxies: Earth visibility of at least 80% does not guarantee uninterrupted communication; non-rough terrain does not confirm a crater floor; permanent shadow within 25 km does not confirm water ice.'));
+  // The Earth-link bar itself is not named here: it is the user's own setting (see rank.js's
+  // commBar), not a fixed figure this disclosure can state once and leave correct. "Mission
+  // rules" below names the actual bar in force; this paragraph only has to say what meeting it
+  // does and does not prove.
+  method.append(node('p', '', 'The existing ranking uses proxies: a site clearing its Earth-link bar does not guarantee uninterrupted communication; non-rough terrain does not confirm a crater floor; permanent shadow within 25 km does not confirm water ice.'));
   method.append(node('p', '', 'A zero or absent darkness limit disables that filter. Unselected optional requirements impose no constraint. Unknown annual data are never counted as a pass. Catalog-best years consider the full period; the recommendation considers only the planning year onward.'));
   method.append(node('p', '', 'Exploring this map and timeline does not change your mission date or the site selected in the 3D survey.'));
   const live = node('p', 'ac-sr');
@@ -313,7 +318,10 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
     if (plan.unknownYears.length) summary.append(node('p', 'ac-copy', `Unknown annual evidence: ${plan.unknownYears.join(', ')}. Unknown cells are not counted as a pass or a confirmed failure.`));
     const needs = getMission()?.needs || {};
     const rules = [Number.isFinite(needs.maxDarkH) && needs.maxDarkH > 0 ? `dark ≤ ${needs.maxDarkH} h` : 'no dark limit'];
-    if (needs.continuousComm) rules.push('Earth visibility ≥ 80%');
+    // The bar itself is the user's own setting now (see rank.js's commBar), not always 80 --
+    // stating the fixed figure here said a different number than the one the ranking actually
+    // enforced whenever the mission screen's bar had been changed from its default.
+    if (needs.continuousComm) rules.push(`Earth visibility ≥ ${commBar(needs.continuousComm)}%`);
     if (needs.craterFloor) rules.push('crater-floor proxy');
     if (needs.iceNearby) rules.push('near-shadow proxy');
     summary.append(node('p', 'ac-requirements', `Mission rules · ${rules.join(' · ')}`));

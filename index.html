@@ -153,7 +153,7 @@
         </div>
         <button id="torover" class="cta2 rover-cta" type="button">Rover Close-up</button>
         <button id="tositemap" class="cta2 sitemap-cta" type="button">Back to Site Map</button>
-        <button id="toanalysis" class="cta2 analysis-cta" type="button">Analyse This Site</button>
+        <button id="tocompare" class="cta2 analysis-cta" type="button">Compare Sites</button>
       </section>
 
       <section id="orbit" hidden aria-label="Relay station">
@@ -379,10 +379,6 @@
         </div>
       </section>
 
-      <!-- P3, criteria and AI analysis. Scoring panel and the one-click
-           analysis button. The analysis text must render with no network, so
-           keep the offline path the default.
-           Screen ids reserved for this package: analysis-panel, analysis-ai. -->
       <section id="worlds" hidden aria-label="Robustness across many missions">
         <header class="topbar">
           <button id="w-back" class="back" type="button">Back <kbd>ESC</kbd></button>
@@ -438,34 +434,30 @@
         </div>
       </section>
 
-      <section id="analysis" hidden aria-label="Site analysis">
+      <!-- P3, site comparison. Replaces the old single-site analysis screen: a reader comparing
+           candidates wants them next to each other, not one suitability verdict read in
+           isolation six times. Renders with the network off, same as the screen it replaced.
+           Screen ids reserved for this package: cmp-table, cmp-note. -->
+      <section id="compare" hidden aria-label="Site comparison">
         <header class="topbar">
-          <button id="an-back" class="back" type="button">Back <kbd>ESC</kbd></button>
-          <p class="loc"><b id="an-site">Site</b> <span>SUITABILITY ANALYSIS</span></p>
+          <button id="cmp-back" class="back" type="button">Back <kbd>ESC</kbd></button>
+          <p class="loc"><b>SITE COMPARISON</b> <span>AGAINST THE MISSION AS CONFIGURED</span></p>
           <p class="clock"><time data-k="clock" data-tab>----</time> <span class="dim">UTC</span></p>
         </header>
 
-        <div class="ttl">
-          <p class="ttl-k"><b>ANALYSIS</b> <span>Against the mission as configured</span></p>
-          <h1 id="an-verdict">Selected Site</h1>
-          <p class="ttl-en" id="an-year">MEASURED CONDITIONS</p>
+        <div class="ttl cmp-ttl">
+          <p class="ttl-k"><b>COMPARE</b> <span>All candidate sites, one mission</span></p>
+          <h1>How do the sites compare?</h1>
+          <p class="ttl-en" id="cmp-year">MEASURED CONDITIONS</p>
         </div>
 
-        <div class="dock">
-          <section class="panel analysis-panel" aria-labelledby="an-req-h">
-            <h2 id="an-req-h">Requirement Check</h2>
-            <dl class="rows" id="an-reqs"></dl>
-          </section>
+        <div class="cmp-wrap">
+          <table class="cmp-table" id="cmp-table" aria-describedby="cmp-note"></table>
+        </div>
+        <p class="credit cmp-note" id="cmp-note"></p>
 
-          <div class="cta-stack">
-            <button id="an-map" class="cta2" type="button"><span>Back to Site Map</span></button>
-          </div>
-
-          <section class="panel analysis-ai" aria-labelledby="an-ai-h">
-            <h2 id="an-ai-h">Assessment</h2>
-            <p class="an-text" id="an-ai"></p>
-            <p class="credit" id="an-credit"></p>
-          </section>
+        <div class="cta-stack cmp-cta">
+          <button id="cmp-map" class="cta2" type="button"><span>Back to Site Map</span></button>
         </div>
       </section>
 
