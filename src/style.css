@@ -760,6 +760,17 @@ body {
 #select .topbar { z-index: 4; }
 #sel-tip { z-index: 5; }
 #sel-sites .site { pointer-events: none; }
+/* Surveyed but rejected ground: a hollow grey point, smaller than a candidate square and with no
+   label, so it reads as context rather than as something to choose. */
+#sel-sites .site.surveyed i {
+  left: -4px; top: -4px; width: 8px; height: 8px;
+  border: 1.5px solid rgba(242, 244, 245, 0.85); border-radius: 50%; background: rgba(0, 0, 0, 0.35);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+}
+#sel-site-list .surveyed-note::before {
+  content: ''; display: inline-block; width: 7px; height: 7px; margin-right: 0.5em; vertical-align: 0.05em;
+  border: 1.5px solid rgba(242, 244, 245, 0.85); border-radius: 50%;
+}
 /* When two candidates project close together the name is pushed clear along the screen's y
    axis while the square stays on the site, and this hairline keeps the two tied together --
    the same leader the body and part labels use elsewhere. Drawn only when the name has
