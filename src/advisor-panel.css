@@ -1,0 +1,6 @@
+.historical-advisors{pointer-events:auto;max-height:34vh;overflow:auto;border-top:1px solid var(--line);margin-top:14px;padding-top:10px;font:500 14px/1.5 var(--sans)}
+.historical-advisors h3{font-size:16px;letter-spacing:.1em;text-transform:uppercase}
+.historical-advisors details{border-top:1px solid var(--line);padding:10px 0}
+.historical-advisors summary{cursor:pointer;color:var(--fg)}
+.historical-advisors p{color:var(--fg2);margin:8px 0}
+.historical-advisors a{color:var(--fg);text-decoration:underline}
