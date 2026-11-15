@@ -805,6 +805,12 @@ async function boot() {
       const { createMission } = await import('./mission.js');
       const { installExploreNavigation } = await import('./explore-navigation.js');
       installExploreNavigation({ root: hud.screen('explore'), onReturn: backFromSurface });
+      const { installCameraBounds } = await import('./camera-bounds.js');
+      installCameraBounds({
+        camera, controls, tiles: data.tiles, radiusKm: R, heightAt,
+        // P1 keeps ownSurface after landing; its interactive view still needs bounds.
+        isActive: () => mode === 'explore' && controls.enabled && !flight && !globeShown,
+      });
       const missionFlow = createMission({
         eph,
         data,
