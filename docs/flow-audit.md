@@ -735,12 +735,11 @@ selection author takes the map and its data, and the analysis author takes the e
 
 ### Open
 
-**A1 - Phone width: the candidate panel is unreachable.** *Claimed by the site-selection author.*
-`src/style.css`, the `@media (max-width: 720px)` dock block. The dock declares only two grid
-areas, `'live' 'cta'`, while `.legend` asks for `grid-area: sites`; the grid grows an implicit
-column and the panel lands at `x: -168.09, y: 370.24` in a 390 wide viewport, 246 px wide, so 78 px
-is visible. The site names never render inside the viewport. Smallest edit: declare `sites` in
-the narrow grid template, or set the panel to `grid-area: auto` below 720 px.
+**A1 - Phone width: the candidate panel is unreachable.** *Fixed in `da72622`.* The dock named
+only two grid areas, `'live'` and `'cta'`, while `.legend` asked for `grid-area: sites`; the grid
+grew an implicit column and the panel landed at `x: -168.09, y: 370.24` in a 390 wide viewport —
+246 px wide, 78 px visible, and the site names never inside it. The fix names all three areas and
+stretches every child, so the list has a real row.
 
 **A2 - Darkness limit has no upper bound.** *Owner: mission framework.*
 `src/mission.js`, the config validator. `1e9` passes and reports `4 / 4`. No other input can make
@@ -748,25 +747,40 @@ a mission unlaunchable now, so this is the last gap in that form. Smallest edit:
 accepted range to something the data can speak to (the catalog's longest night, 318 h, plus a
 margin) and say so in the field note.
 
-**A3 - The surface readout is switched off below 900 px.** *Claimed by the site-selection
-author.* More severe than A1, and the opposite kind of defect: not an overflow, an explicit
-`display: none`.
-
-`src/style.css:1391`:
+**A3 - The surface readout is switched off below 900 px.** *Fixed in `da72622`.* More severe
+than A1, and the opposite kind of defect — not an overflow, an explicit `display: none`:
 
 ```css
+/* src/style.css:1391, before the fix */
 @media (max-width: 900px) { .ex-dock { display: none; } }
 ```
 
 `.ex-dock` holds the four panels the surface view was built to answer the site choice with —
 position and slope, live Sun and Earth state, endurance and hazard, ground classes — and
-`#ex-advisors`, the reserved slot for the flight-history review. Below 900 px all of it is gone,
-leaving only the site name in the top bar. A visitor on a phone, or on a laptop with the window
-split, sees a 3D view of the ground and **no measurement at all**.
+`#ex-advisors`, the reserved slot for the flight-history review. Below 900 px all of it was gone,
+leaving only the site name in the top bar: a visitor on a phone, or on a laptop with the window
+split, saw a 3D view of the ground and **no measurement at all**.
 
 The 900 px breakpoint is the widest in the product (the others are 720, 760, 650, 560, 340), so
-this hides data in cases that are not mobile at all. Smallest edit: below 900 px, keep the dock
-and let it scroll or collapse to a single column, rather than removing it.
+this hid data in cases that were not mobile at all. The panel now keeps a full-width scrolling
+layout instead.
+
+**A4 - `#worlds` overflows sideways at short landscape.** *Reported by a static pass; not
+measured.* In a 740x360 window the 100-cell grid is roughly 703 px tall and pushes past the
+bottom of the viewport, while the page is `overflow: hidden`, so the upper rows cannot be
+scrolled to. The rule is confirmed present; the "about 70 percent hidden" figure in that report
+is an estimate and is **not** reproduced here. Needs a measurement before anyone acts on the
+number.
+
+**A5 - `.analysis-cta` and `.hint` share `bottom: var(--pad)`.** *Reported by the same pass;
+not measured.* At 390 px both resolve to the same bottom offset, which would overlap them. Listed
+as unreadable by that pass; this audit did not verify it. Smallest check: at 390x844, compare
+their bounding boxes.
+
+**A6 - Short landscape is untested.** 720x360 and 740x360 have never been walked end to end —
+only 390x844 portrait and 1440x900/900x900 landscape were. Of the three viewports with a known
+problem this is the only one with **no data at all**, which is worse than a known break: nothing
+here says whether the flow completes.
 
 ### Confirmed, decided not to fix
 
