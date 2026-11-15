@@ -1379,7 +1379,31 @@ body {
 .adv.no i { color: var(--red-hi); }
 .adv b { font-weight: 700; color: var(--fg); }
 .adv span { grid-column: 2; color: var(--fg2); }
-@media (max-width: 900px) { .ex-dock { display: none; } }
+/* This used to be `display: none`, which removed every measurement on the surface screen -- site,
+   ground, live sun/Earth state, endurance, hazards, and the flight-history panel -- at the widest
+   breakpoint in the file, so a split laptop window lost them too, not just a phone. The reason it
+   was hidden is real: `width: min(272px, 25vw)` computes to 97px at 390px, too narrow to read a
+   two-column row in. So give it a layout for narrow screens instead of deleting it: full width
+   along the bottom, capped so the terrain stays visible, and scrolling inside as it already does. */
+@media (max-width: 900px) {
+  .ex-dock {
+    left: var(--pad);
+    right: var(--pad);
+    top: auto;
+    /* Clear of both button rows. Measured at 390x844: #torover spans y=680.6-714 and #tositemap
+       y=750.2-780.8, so the panel has to stop above 680, not above 714 -- an earlier value of
+       84px left the panel overlapping #torover by 33px. */
+    bottom: calc(var(--pad) + 152px);
+    width: auto;
+    max-height: 42vh;
+  }
+  /* Two columns of rows read better than one long column when the panel is wide and short. */
+  .ex-dock .rows { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 1.2em; }
+}
+@media (max-width: 420px) {
+  /* Back to one column: at this width two columns leave no room for the value beside the label. */
+  .ex-dock .rows { grid-template-columns: minmax(0, 1fr); }
+}
 
 #explore.in > * { animation: fadeUp 0.7s 0.1s both var(--ease); }
 #explore.in > .hint { animation: fade 0.8s 0.4s both; }
@@ -1454,9 +1478,27 @@ body {
   .sub { letter-spacing: 0.3em; padding-left: 0.3em; line-height: 1.5; }
   .desc { width: auto; }
   .loc span, .clock .id, .clock .mt, #explore .clock { display: none; }
-  .dock { grid-template-columns: 1fr; grid-template-areas: 'live' 'cta'; gap: 1.4em; }
-  .live { justify-self: stretch; width: auto; }
-  .cta-stack, .cta { justify-self: stretch; }
+  /* Base template only names 'live' and 'cta'. A dock with a third child in grid-area 'sites'
+     (.legend on #select, .analysis-panel on #analysis) has no slot for it: that name resolves to
+     an implicit track outside the explicit grid, which is how the candidate list ended up at
+     x=-168 and the legend panel landed below the viewport, both measured at 390x844. Naming all
+     three areas gives every panel a real row and stacks them in reading order: the decision
+     (sites/live) above the actions (cta). */
+  .dock { grid-template-columns: 1fr; grid-template-areas: 'sites' 'live' 'cta'; gap: 1em; }
+  /* Every dock child, not just the ones in the base template. A single child left at its fixed
+     `width: var(--dock-w)` (441px at this font size) sizes the shared 1fr column to 441px and
+     pushes the whole stack past both viewport edges -- measured on #analysis, where .analysis-ai
+     was the one still holding its fixed width. */
+  .sites, .legend, .analysis-panel, .analysis-ai, .params, .tele,
+  .live, .cta-stack, .cta { justify-self: stretch; width: auto; }
+  /* The unconditional `max-height: calc(100vh - 46vh)` on #select/#analysis .dock assumed two
+     panels sharing one row; stacked three-high it leaves no room and pushes .cta-stack past the
+     viewport bottom (measured: cta at y=845 in an 844px-tall viewport). Lift the cap here and let
+     the candidate/requirement list do the scrolling instead, which it already supports
+     (#sel-site-list, #an-reqs overflow-y: auto). */
+  #select .dock, #analysis .dock { max-height: none; }
+  #select .legend, #select .live,
+  #analysis .analysis-panel, #analysis .analysis-ai { max-height: 38vh; }
   .ttl { top: calc(var(--pad) + 52px); }
   #orbit .clock, #orbit .tag:not([data-tag='ring']) .lbl, #orbit .tag:not([data-tag='ring']) .lead, .tag[data-tag='ring'] .lbl > span { display: none; }
   .tag[data-tag='crater'] .lbl > span, .site span, .frame::before, .frame::after { display: none; }
