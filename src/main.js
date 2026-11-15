@@ -1048,6 +1048,22 @@ async function boot() {
         more.textContent = `+${hidden} more in the pool, none meeting the mission better`;
         siteListHost.appendChild(more);
       }
+      // A requirement set stricter than every measured site reads the same on screen as a
+      // broken ranking: an all-red list either way. Say which requirement is the actual
+      // blocker and the loosest value that would let the best site through, so the fix is a
+      // number to change rather than a guess.
+      if (ranked.length && ranked.every((e) => !e.meetsAll)) {
+        const warn = document.createElement('div');
+        warn.className = 'allfail';
+        if (Number.isFinite(missionNeeds.maxDarkH) && ranked.every((e) => e.stats.longest_dark_h > missionNeeds.maxDarkH)) {
+          const best = Math.min(...ranked.map((e) => e.stats.longest_dark_h));
+          warn.textContent = `No site in the pool stays under ${missionNeeds.maxDarkH} h of darkness; `
+            + `the least-dark site measures ${best} h. Raise the darkness limit to at least that to admit it.`;
+        } else {
+          warn.textContent = 'No site in the pool meets every requirement as set.';
+        }
+        siteListHost.appendChild(warn);
+      }
     }
     buildSiteList(null);
 

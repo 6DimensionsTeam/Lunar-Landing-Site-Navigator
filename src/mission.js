@@ -34,7 +34,12 @@ export function buildMissionConfig(eph, { arriveH, stayH, needs = {} }) {
   if (arriveH + stayH > maxH) {
     throw new RangeError('The planned stay extends beyond the ephemeris. Choose an earlier arrival or a shorter stay.');
   }
-  const maxDarkH = needs.maxDarkH ?? 72;
+  // Measured over whole calendar years, the shortest polar night at any candidate site is
+  // 204 h (Shackleton Rim) -- a 72 h default sat an order of magnitude under what any real
+  // site offers, so every site failed before the user touched a setting. 216 h clears the
+  // best-measured site with a small margin and still rejects the sites that genuinely run
+  // dark far longer, which is the distinction this requirement exists to draw.
+  const maxDarkH = needs.maxDarkH ?? 216;
   if (!Number.isFinite(maxDarkH) || maxDarkH < 0) throw new RangeError('Maximum darkness must be zero or more hours.');
   // 84 hours is the assumed flight time used by the transfer estimate, not an optimized launch window.
   // A departure near the dataset start is shortened to keep animation samples in range.
@@ -240,7 +245,7 @@ const markup = `
         <label class="p2-check"><input data-ui="crater-floor" type="checkbox"><span>Reach a crater floor</span><small data-need="craterFloor">NOT REQUESTED</small></label>
         <label class="p2-check"><input data-ui="ice-nearby" type="checkbox"><span>Water ice nearby</span><small data-need="iceNearby">NOT REQUESTED</small></label>
         <label class="p2-check"><input data-ui="continuous-comm" type="checkbox"><span>Continuous Earth link</span><small data-need="continuousComm">NOT REQUESTED</small></label>
-        <div class="p2-dark-label"><label for="p2-max-dark">Longest acceptable night</label><div class="p2-dark-value"><input id="p2-max-dark" data-ui="max-dark" type="number" min="0" step="any" value="72"><span>hours</span></div></div>
+        <div class="p2-dark-label"><label for="p2-max-dark">Longest acceptable night</label><div class="p2-dark-value"><input id="p2-max-dark" data-ui="max-dark" type="number" min="0" step="any" value="216"><span>hours</span></div></div>
         <div class="p2-dark-scale" data-ui="dark-scale" aria-label="Catalog longest-night reference ruler"></div><div class="p2-reference-range"><span>0 HOURS</span><span data-ui="dark-scale-max"></span></div>
         <div class="p2-candidate-feedback" data-ui="candidate-feedback" role="status" aria-live="polite" aria-atomic="true"></div>
         <p class="p2-field-note" data-ui="needs-feedback">Window-specific checks run after arrival.</p>

@@ -797,6 +797,15 @@ body {
   color: var(--dim);
   cursor: default;
 }
+#sel-site-list .allfail {
+  margin-top: 0.6em;
+  padding: 0.6em 0.7em;
+  border-left: 2px solid var(--red);
+  background: rgba(242, 244, 245, 0.05);
+  font: 600 0.8em/1.45 var(--sans);
+  color: var(--fg2);
+  cursor: default;
+}
 
 /* ---------- site analysis ---------- */
 .analysis-panel { grid-area: sites; justify-self: start; width: var(--dock-w); box-sizing: border-box; }
