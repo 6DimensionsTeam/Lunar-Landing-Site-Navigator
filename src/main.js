@@ -418,15 +418,22 @@ async function boot() {
       hud.bind('ex-elev', Number.isFinite(s.elev_m) ? `${Math.round(s.elev_m).toLocaleString('en-US')} m` : '—');
       hud.bind('ex-ground', g ? g.zone.toUpperCase() : 'unmapped');
       hud.bind('ex-slope', g && Number.isFinite(g.slopeDeg) ? `${g.slopeDeg.toFixed(1)}°` : (Number.isFinite(s.slope_deg) ? `${s.slope_deg.toFixed(1)}°` : '—'));
-      hud.bind('ex-src', `${src}. Figures: ${sel.year ? `${sel.year} annual` : `${eph.startYear}–${eph.endYear} mean`}, LOLA horizon × DE421.`);
+      // Two different aggregations, named separately. The visibility percentages are means over
+      // the period; the longest night and longest blackout are the worst continuous run in it.
+      // They were both labelled "annual means", which made the endurance figures read as typical
+      // when they are the worst case the mission has to survive -- and for a site whose dark
+      // spell crosses a year boundary the whole-period run is longer than any single year's,
+      // so the two cannot share a label even in principle.
+      hud.bind('ex-src', `${src}. Percentages are means over ${sel.year ? sel.year : `${eph.startYear}–${eph.endYear}`}; `
+        + `longest night and blackout are the worst continuous run in ${eph.startYear}–${eph.endYear}. LOLA horizon × DE421.`);
       hud.pill('ex-verdict', !!sel.entry?.meetsAll, sel.entry ? (sel.entry.meetsAll ? 'MEETS' : 'FAILS') : '—');
       hud.bind('ex-sunpct', pct(st.sun_visible_pct));
       hud.bind('ex-earthpct', pct(st.earth_visible_pct));
       hud.bind('ex-both', pct(st.both_pct));
       // Endurance figures are the whole-period worst case, the same figure the pool is screened on
       const whole = s.stats || st;
-      hud.bind('ex-dark', hrs(whole.longest_dark_h));
-      hud.bind('ex-blind', hrs(whole.longest_blind_h));
+      hud.bind('ex-dark', `${hrs(whole.longest_dark_h)} worst`);
+      hud.bind('ex-blind', `${hrs(whole.longest_blind_h)} worst`);
       hud.bind('ex-ice', g && Number.isFinite(g.iceDistKm) ? (g.iceLikely ? 'on site' : `${g.iceDistKm.toFixed(1)} km`) : '—');
       const f = faultKm(s);
       hud.bind('ex-fault', f ? `${f.km.toFixed(1)} km${f.id ? ` · scarp ${f.id}` : ''}` : 'no catalogue data');
@@ -704,11 +711,25 @@ async function boot() {
     if (mode === 'fly' && flight && u >= 1) flight.done();
   }
 
+  // Frame budget. A surface frame draws three shadow maps, the terrain and a bloom chain, and on
+  // a 120 Hz display the loop was running all of it twice as often as a 60 Hz one for no visual
+  // gain -- the Sun moves half a degree an hour, so nothing on screen changes between two
+  // consecutive frames at that rate. Capping the work keeps the GPU out of its fan curve, which
+  // is what made the view feel worse the longer it was open.
   function frame(t) {
     if (globeShown) { surfaceStopped = true; return; }   // stopped, not skipped: no further rAF is queued until resumeFrame()
     surfaceStopped = false;
-    surfaceStep(t);
+    // Always re-arm first: skipping a draw must never drop the chain.
     requestAnimationFrame(frame);
+    // The budget state lives on the function, like surfaceStep.last, so this stays self-contained.
+    const budget = 1000 / 60 - 1;
+    // A flight is the one case worth every frame the display offers: the camera is moving fast
+    // enough for the difference to show. Otherwise 60 Hz is the cap -- the Sun moves half a
+    // degree an hour, so two consecutive frames on a 120 Hz display are the same picture drawn
+    // twice, with three shadow maps and a bloom chain behind each one.
+    if (mode !== 'fly' && t - (frame.lastDrawn || 0) < budget) return;
+    frame.lastDrawn = t;
+    surfaceStep(t);
   }
 
   // Low-frequency tasks: site state, site occlusion
@@ -1171,8 +1192,8 @@ async function boot() {
       // averages that entire year, not the arrival window inside it. Nothing here is computed
       // over a transfer or surface window, so neither label may imply one.
       siteListYear.textContent = year != null
-        ? ` ${year} ANNUAL`
-        : ` ${eph.startYear}–${eph.endYear} MEAN`;
+        ? ` ${year} MEANS · WORST NIGHT ${eph.startYear}–${eph.endYear}`
+        : ` ${eph.startYear}–${eph.endYear} MEANS · WORST NIGHT`;
       // The requirements P2 collected are what make this a ranking rather than a table: the
       // list is ordered by how well each site meets the mission as configured, and a site that
       // fails one is moved below every site that does.
@@ -1202,10 +1223,33 @@ async function boot() {
         // One click frames the site on the map, a second commits to it and goes down to the
         // surface. Going straight down on the first click would take the map away before the
         // user had seen the site in its surroundings, which is what the map is for.
-        row.addEventListener('click', () => {
+        // Choosing a site is the one real decision in this product, and it was reachable only
+        // with a mouse: these rows were plain divs with a click listener, so a keyboard could
+        // reach the screen, fly the camera and leave again without ever being able to choose.
+        // They are buttons now in everything but tag name -- focusable, announced, and driven by
+        // Enter or Space, with the same two-step behaviour the pointer gets.
+        const choose = () => {
           if (framedSite === s.id && !globe.flying) descendTo(s, entry);
           else { framedSite = s.id; globe.flyToSite(s); }
-          for (const r of siteListHost.children) r.classList.toggle('sel', r === row);
+          for (const r of siteListHost.children) {
+            const on = r === row;
+            r.classList.toggle('sel', on);
+            if (r.hasAttribute('aria-pressed')) r.setAttribute('aria-pressed', String(on));
+          }
+        };
+        row.addEventListener('click', choose);
+        row.tabIndex = 0;
+        row.setAttribute('role', 'button');
+        row.setAttribute('aria-pressed', 'false');
+        // Said out loud, because the two-step gesture is not discoverable: the first press
+        // frames the site, the second commits to it.
+        row.setAttribute('aria-label', `${s.en}, site ${s.id}. ${entry.meetsAll ? 'Meets the mission' : 'Does not meet the mission'}. `
+          + `Press once to look at it, twice to land.`);
+        row.addEventListener('keydown', (ev) => {
+          if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
+          ev.preventDefault();      // Space would otherwise scroll the panel
+          ev.stopPropagation();     // and the surface keymap must not see it as a drive command
+          choose();
         });
         row.style.cursor = 'pointer';
         siteListHost.appendChild(row);
@@ -1579,14 +1623,22 @@ async function boot() {
       current = sel;
       const { site, entry, year, needs } = sel;
       an('an-site').textContent = site.en;
-      an('an-verdict').textContent = entry.meetsAll ? 'Suitable as configured' : 'Does not meet the mission';
+      // "Suitable as configured" was written unconditionally, which claimed a verdict against a
+      // mission even when no requirement had been set -- and it overrode explain(), four lines
+      // below, which already words that case correctly. The headline now follows whether
+      // anything was actually asked of the site.
+      const asked = entry.verdicts.length > 0;
+      an('an-verdict').textContent = !asked ? 'Ranked on measured conditions'
+        : entry.meetsAll ? 'Suitable as configured' : 'Does not meet the mission';
       an('an-year').textContent = year != null
-        ? `${year} ANNUAL MEANS · ${site.lat.toFixed(2)}° S · ${site.lon.toFixed(2)}° E`
+        ? `${year} MEANS, WORST-CASE NIGHT · ${site.lat.toFixed(2)}° S · ${site.lon.toFixed(2)}° E`
         : `${site.lat.toFixed(2)}° S · ${site.lon.toFixed(2)}° E`;
 
       const reqs = an('an-reqs');
       reqs.textContent = '';
-      const rows = entry.verdicts.length ? entry.verdicts : [{ label: 'No requirements set', pass: true, value: '' }];
+      // Reachable again now that verdicts are only produced for requirements that were set.
+      const rows = entry.verdicts.length ? entry.verdicts
+        : [{ label: 'No requirements set', pass: true, value: 'measured conditions only' }];
       for (const v of rows) {
         const row = document.createElement('div');
         row.innerHTML = '<dt></dt><dd><span class="val"></span><em></em></dd>';
@@ -1603,7 +1655,10 @@ async function boot() {
       an('an-credit').textContent =
         `${st.sun_visible_pct.toFixed(1)}% sunlight · ${st.earth_visible_pct.toFixed(1)}% Earth link · `
         + `${st.both_pct.toFixed(1)}% both · longest dark ${st.longest_dark_h} h. `
-        + 'Whole-calendar-year means from LOLA horizon profiles and DE421, not a surface-window calculation.';
+        + 'Percentages are whole-calendar-year means from LOLA horizon profiles and DE421. The '
+        + 'longest night is not a mean: it is the worst continuous dark run measured across the '
+        + 'whole record, which is the figure a lander has to survive, and it can exceed any one '
+        + 'year when a spell crosses a year boundary. Neither is a surface-window calculation.';
     }
 
     const isOpen = () => !an('analysis').hidden;
