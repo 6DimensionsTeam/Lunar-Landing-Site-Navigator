@@ -841,6 +841,8 @@ body {
   pointer-events: auto;        /* #hud ignores the mouse by default; without this clicks fall through to the globe */
 }
 #sel-site-list div:first-child { border-top: 0; }
+/* The rows are buttons in behaviour, so they need a visible focus ring like every other control */
+#sel-site-list > div[role='button']:focus-visible { outline: 2px solid var(--fg); outline-offset: -2px; }
 #sel-site-list dt {
   display: flex;
   align-items: center;
