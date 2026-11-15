@@ -318,9 +318,14 @@ void main() {
                                 : vec3(0.290, 0.322, 0.341);    // rough
       a *= distance(z.rgb, want) < 0.02 ? 1.0 : uZoneDim;
     }
-    // Screen-door the tint with a fine dither so a flat colour does not read as a decal
-    // pasted over the terrain; the relief keeps coming through at full tint.
-    col = mix(col, col * (0.35 + 0.9 * z.rgb) + 0.10 * z.rgb, a);
+    // Blend towards the class colour rather than multiplying into the ground. A multiply keeps
+    // almost none of the hue here: lunar regolith is dark, and the grade pass then pulls
+    // saturation to 45 per cent, so the tint arrived on screen as grey. The relief is carried by
+    // a brightness term instead, the same way the globe screen does it -- the class decides the
+    // colour, the terrain's own shading decides how light that colour is, so a crater floor
+    // still shows its shape through the tint.
+    float relief = 0.72 + 0.85 * clamp(length(col), 0.0, 1.0);
+    col = mix(col, z.rgb * relief, a);
   }
 
   // Navigation overlay: LOLA contours at 100 m / 500 m,

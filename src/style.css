@@ -1239,6 +1239,8 @@ body {
 #ex-site-h [data-pill] { margin-left: auto; padding: 0.25em 0.5em 0.2em; font: 700 0.8em/1 var(--sans); letter-spacing: 0.1em; background: var(--red); color: #fff; }
 #ex-site-h [data-pill][data-state='on'] { background: var(--fg); color: #111; }
 #ex-site-h { display: flex; align-items: center; }
+#ex-legend dt { display: flex; align-items: center; gap: 0.5em; }
+#ex-legend .swatch { display: inline-block; width: 0.85em; height: 0.85em; border: 1px solid var(--line-hi); flex: none; }
 #ex-adv-list { display: grid; gap: 0.45em; }
 .adv {
   display: grid;

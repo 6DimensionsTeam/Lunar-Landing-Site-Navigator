@@ -324,6 +324,12 @@ async function boot() {
 
   // Ground track: in the south polar stereographic projection a polar orbit is a straight line through the pole along the subsatellite meridian
   const TRACK = { home: 0, explore: 0, orbit: 1, rover: 0 };
+  // Zone tint on the drawn terrain. The shader has carried this since the zone map was built
+  // (see uZoneA in glsl/terrain.js) but nothing ever supplied the texture, so the surface was
+  // always bare grey while the globe screen was coloured from the same data. Strongest standing
+  // at a site, where the question is what kind of ground this is; off in the rover close-up,
+  // where a 480 m cell is larger than the whole view and would read as a flat wash.
+  const ZONEA = { home: 0.28, explore: 0.5, orbit: 0.34, rover: 0 };
   {
     const nad = sceneToMap(R, station.place.pos).m.clone();
     terrain.uniforms.uNadir.value.copy(nad);
@@ -637,6 +643,7 @@ async function boot() {
     // frame, so it is off by default and can be switched on with the ?orbit URL flag
     if (relayOrbit) relayOrbit.visible = stVis && orbitFlag;
     terrain.uniforms.uTrack.value = THREE.MathUtils.lerp(TRACK[mode === 'fly' ? from : mode], TRACK[mode === 'fly' ? to : mode], s);
+    terrain.uniforms.uZoneA.value = THREE.MathUtils.lerp(ZONEA[mode === 'fly' ? from : mode], ZONEA[mode === 'fly' ? to : mode], s);
     terrain.uniforms.uKeyFloor.value = THREE.MathUtils.lerp(KEYF[mode === 'fly' ? from : mode], KEYF[mode === 'fly' ? to : mode], s);
     post.grade.uniforms.uExposure.value = THREE.MathUtils.lerp(EXP[mode === 'fly' ? from : mode], EXP[mode === 'fly' ? to : mode], s);
     post.bloom.threshold = THREE.MathUtils.lerp(BLOOM[mode === 'fly' ? from : mode], BLOOM[mode === 'fly' ? to : mode], s);
@@ -795,6 +802,15 @@ async function boot() {
   for (const s of sites.sites) blocked[s.id] = occluded(camera.position, s.scene);
   clock.t0 = performance.now();
   refreshLive(nowH());
+  // P0, landing zones. Built before the first frame because the terrain shader tints the ground
+  // from this texture: starting the loop first would sample an unset sampler for a few frames.
+  // P1 and P3 both read it -- P1 colours the surface and shows zones.at() on hover, P3 scores a
+  // site with the same values. A cell is 480 m, so these are area characteristics; precise
+  // per-site figures stay in sites.json.
+  const zones = createZones(data.zones, data.zonesMeta);
+  terrain.uniforms.uZones.value = zones.texture();
+  terrain.uniforms.uZoneE.value = zones.halfExtentKm;
+
   // Re-arms the surface loop, and only if it genuinely stopped. Called on the way back from
   // the globe, which may be entered and left repeatedly.
   const resumeFrame = () => {
@@ -806,12 +822,6 @@ async function boot() {
   requestAnimationFrame(frame);
   await B.finish();
   hud.showHome();
-
-  // P0, landing zones. Built here because P1 and P3 both read it: P1 colours the
-  // surface with zones.texture() and shows zones.at() on hover, P3 scores a site with
-  // the same values. A cell is 480 m, so these are area characteristics; precise
-  // per-site figures stay in sites.json.
-  const zones = createZones(data.zones, data.zonesMeta);
 
   // ---- Mount points for work in progress ----
   // One block per work package. Each package imports its own module and wires it up
@@ -1055,6 +1065,19 @@ async function boot() {
       const pct = data.zonesMeta.share_pct[key];
       row.innerHTML = `<dt><i class="swatch" style="background:rgb(${r},${g},${b})"></i>${s.name}</dt><dd>${pct.toFixed(1)}%</dd>`;
       legendHost.appendChild(row);
+    }
+
+    // The same legend on the surface screen, where the tint is now drawn on the ground itself.
+    // Built from zones.style like the one above, so the two screens cannot drift apart.
+    const exLegend = document.getElementById('ex-legend');
+    if (exLegend && !exLegend.children.length) {
+      for (const [key, st] of Object.entries(zones.style)) {
+        if (key === 'rough') continue;
+        const row = document.createElement('div');
+        const [r, g, b] = st.rgba;
+        row.innerHTML = `<dt><i class="swatch" style="background:rgb(${r},${g},${b})"></i>${st.name}</dt><dd>${data.zonesMeta.share_pct[key].toFixed(1)}%</dd>`;
+        exLegend.appendChild(row);
+      }
     }
 
     // Candidate-site list, mirroring the home screen's table: id chip, name, the figures a
