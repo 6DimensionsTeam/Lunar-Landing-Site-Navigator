@@ -10,12 +10,14 @@ const realData = { sites: readJSON('sites.json'), candidates: readJSON('candidat
 const realZones = createZones(inflateSync(readFileSync(new URL('../src/data/zones.bin', import.meta.url))), readJSON('zones.json'));
 const ground = { zone: 'prime', flat: true, iceLikely: false, slopeDeg: 2, iceDistKm: 2 };
 const zones = { atLatLon: () => ({ ...ground }) };
-const stats = (sun, comms, dark) => ({ sun_visible_pct: sun, earth_visible_pct: comms, both_pct: Math.min(sun, comms), longest_dark_h: dark });
+const stats = (sun, comms, dark, blind) => ({ sun_visible_pct: sun, earth_visible_pct: comms, both_pct: Math.min(sun, comms), longest_dark_h: dark, longest_blind_h: blind });
 const site = (id, aggregate) => ({ id, en: id, lat: -89, lon: 0, stats: aggregate, stats_by_year: {} });
+// The outage figures are the real ones for these three sites, because the point of carrying
+// them is that they do not rank the sites the way the share does.
 const pool = [
-  site('A', stats(82.2, 51.9, 204)),
-  site('B', stats(88.9, 53.5, 222)),
-  site('D', stats(75.3, 84.8, 318)),
+  site('A', stats(82.2, 51.9, 204, 336)),
+  site('B', stats(88.9, 53.5, 222, 327)),
+  site('D', stats(75.3, 84.8, 318, 123)),
 ];
 
 test('compareSites keeps one row per ranked entry, in the same order rankSites produced', () => {
@@ -30,7 +32,7 @@ test('every row carries the same four measured figures and an overall verdict, r
   for (const needs of [{}, { continuousComm: 80, maxDarkH: 250, craterFloor: true, iceNearby: true }]) {
     const ranked = rankSites(pool, zones, null, needs);
     const { rows, columns } = compareSites(ranked);
-    assert.deepEqual(columns.map(c => c.key), ['sun', 'comms', 'dark', 'ground', 'ice', 'overall']);
+    assert.deepEqual(columns.map(c => c.key), ['sun', 'comms', 'blind', 'dark', 'ground', 'ice', 'overall']);
     for (const row of rows) {
       assert.equal(row.cells.sun.value, `${row.entry.stats.sun_visible_pct.toFixed(1)}%`);
       assert.equal(row.cells.dark.value, `${row.entry.stats.longest_dark_h} h`);
@@ -43,8 +45,10 @@ test('every row carries the same four measured figures and an overall verdict, r
 test('a column is graded only when at least one row actually has a verdict for it', () => {
   const noAsk = compareSites(rankSites(pool, zones, null, {}));
   for (const col of noAsk.columns) {
-    // sun has no verdict ever -- it is a measured figure, not something any requirement grades.
-    if (col.key === 'overall' || col.key === 'sun') continue;
+    // sun and blind have no verdict ever -- they are measured figures, not something any
+    // requirement grades. blind in particular is reported precisely because nothing filters on
+    // it: a share cannot express how long a single outage runs.
+    if (col.key === 'overall' || col.key === 'sun' || col.key === 'blind') continue;
     assert.equal(col.graded, false, `${col.key} should not be graded with no requirements set`);
     for (const row of noAsk.rows) assert.equal(row.cells[col.key].verdict, null);
   }
@@ -108,13 +112,47 @@ test('a tie for the best raw value marks every tied row, and a missing figure ne
   for (const row of unmapped.rows) assert.equal(row.cells.ice.best, undefined, 'an unmapped site has no ice distance to win with');
 });
 
+// The reason the outage is reported at all: a share cannot express how long a single gap runs,
+// and on this pool the two measures disagree about which site is worst. Reading the share alone
+// invites "84.8%, so contact is fine" about the site that sits through a five-day outage.
+test('the Earth link share and the longest outage do not rank the sites the same way', () => {
+  const { rows, columns } = compareSites(rankSites(pool, zones, null, {}));
+  const byId = id => rows.find(r => r.site.id === id);
+
+  // D holds the best share and also the shortest outage; A holds the worst share and the
+  // longest outage. What differs is the scale: the share spans 33 points, the outage a factor
+  // of 2.7, so a reader who sees only the share cannot tell a 123 h gap from a 336 h one.
+  assert.equal(byId('D').cells.comms.best, true);
+  assert.equal(byId('D').cells.blind.best, true);
+  assert.equal(byId('A').cells.blind.best, false);
+  assert.equal(byId('D').cells.blind.value, '123 h');
+  assert.equal(byId('A').cells.blind.value, '336 h');
+
+  // Lower is better for an outage, and the column is never graded: no requirement filters on it.
+  const blindCol = columns.find(c => c.key === 'blind');
+  assert.equal(blindCol.better, 'low');
+  assert.equal(blindCol.graded, undefined);
+  for (const row of rows) assert.equal(row.cells.blind.verdict, undefined);
+
+  // It sits next to the share it qualifies, not somewhere else in the table.
+  const keys = columns.map(c => c.key);
+  assert.equal(keys[keys.indexOf('comms') + 1], 'blind');
+});
+
+test('a site with no measured outage renders a dash rather than a figure', () => {
+  const noBlind = [site('Z', stats(80, 60, 200, undefined))];
+  const { rows } = compareSites(rankSites(noBlind, zones, null, {}));
+  assert.equal(rows[0].cells.blind.value, '—');
+  assert.equal(rows[0].cells.blind.raw, null);
+});
+
 test('compareSites runs over the real candidate pool and every candidate pool year without throwing', () => {
   const realPool = candidatePool(realData);
   assert.ok(realPool.length >= 6, 'the real pool should have at least the published NASA regions plus data-selected candidates');
   for (const needs of [{}, { continuousComm: true, maxDarkH: 300, craterFloor: true, iceNearby: true }]) {
     const { rows, columns } = compareSites(rankSites(realPool, realZones, null, needs));
     assert.equal(rows.length, realPool.length);
-    assert.equal(columns.length, 6);
+    assert.equal(columns.length, 7);
     for (const row of rows) {
       for (const col of columns) assert.ok(row.cells[col.key].value.length > 0, `${row.site.id}.${col.key} should render a value`);
     }

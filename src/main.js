@@ -1901,8 +1901,10 @@ async function boot() {
       cp('cmp-note').textContent = (asked
         ? 'PASS/FAIL columns are only shown for requirements the mission actually asked for; an unshaded column was never asked. '
         : 'No requirements were set, so every column is a measured figure with no pass or fail. ')
-        + `Sunlight and Earth link are ${year != null ? `${year}'s own` : 'whole-calendar-year'} means; longest night is ${darkPeriod} `
+        + `Sunlight and Earth link share are ${year != null ? `${year}'s own` : 'whole-calendar-year'} means; longest night is ${darkPeriod} `
         + 'worst continuous dark run, measured from LOLA horizon profiles and DE421, not a surface-window calculation. '
+        + 'Earth link share is how much of the period the site sees Earth at all, which says nothing about how long a '
+        + 'single gap runs: longest outage is that gap, and the two do not rank the sites the same way. '
         + 'The highlighted row is the site you committed to.';
     }
 
