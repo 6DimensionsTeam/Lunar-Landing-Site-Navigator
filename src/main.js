@@ -17,6 +17,7 @@ import { createZones } from './zones.js';
 import { createGlobe } from './scene/globe.js';
 import { rankSites, statsFor, explain, candidatePool } from './rank.js';
 import { buildWorlds, runWorlds, summarise as worldsSummarise } from './worlds.js';
+import { reviewSite } from './advisors.js';
 
 // Home-screen epoch: 2028-09-29 12:00 UTC. Seen from Shackleton, Earth (a 15%-lit crescent) and the Sun both stand only 1.7–3° above the horizon,
 // about 45° apart in azimuth, straddling the south polar ridge. The clock then runs forward at real speed.
@@ -391,6 +392,62 @@ async function boot() {
   // the same way rather than a second opinion.
   const defaultEntryFor = (site) => rankSites([site], zones, null, {})[0];
 
+  // Historical landing failures, asked as questions rather than answered as verdicts. The rules
+  // and their sources live in src/advisors.js; this only renders them. Every case there reports
+  // pass: null, because the published cause (an altitude estimator rejecting readings, a
+  // touchdown sensor tripping on leg deployment, a helium valve losing its seal) cannot be
+  // tested against ground measurements -- and saying so is the honest result, not a gap. A row
+  // claiming PASS from site data would be the invented-threshold problem in a new costume.
+  function renderAdvisors(site, entry) {
+    const panel = document.getElementById('ex-advisors');
+    const list = document.getElementById('ex-adv-list');
+    if (!panel || !list) return;
+    let rows = [];
+    try {
+      rows = reviewSite(site, entry || {}) || [];
+    } catch (err) {
+      // A failure here must not take the surface readout down with it.
+      console.warn('advisor review failed', err);
+      rows = [];
+    }
+    panel.hidden = rows.length === 0;
+    if (!rows.length) return;
+    list.replaceChildren();
+    for (const r of rows) {
+      const row = document.createElement('div');
+      // No pass/fail colour where there is no verdict: the marker states what it is.
+      row.className = 'adv' + (r.pass === false ? ' no' : r.pass === true ? '' : ' open');
+      const mark = document.createElement('i');
+      mark.textContent = r.pass === true ? 'PASS' : r.pass === false ? 'FAIL' : 'ASKS';
+      const head = document.createElement('b');
+      head.textContent = `${r.mission} (${r.year})`;
+      // The question is what the advisor is for, so it gets the line. The scope and the
+      // disclaimers that follow it in `note` are real and have to stay, but as a second,
+      // quieter line: joined into one paragraph they buried the question they exist to qualify.
+      const parts = String(r.note || r.failure || '').split(/(?<=[.?])\s+/).filter(Boolean);
+      const ask = document.createElement('span');
+      ask.className = 'adv-ask';
+      ask.textContent = parts[0] || '';
+      row.append(mark, head, ask);
+      if (parts.length > 1) {
+        const fine = document.createElement('span');
+        fine.className = 'adv-fine';
+        fine.textContent = parts.slice(1).join(' ');
+        row.append(fine);
+      }
+      if (r.source) {
+        const a = document.createElement('a');
+        a.href = r.source;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.textContent = 'investigation report';
+        a.className = 'adv-src';
+        row.append(a);
+      }
+      list.append(row);
+    }
+  }
+
   // ---- Surface site readout: whatever site the camera is standing at ----
   // Set when a site is committed on the zone map (descendTo), refreshed on the 400 ms timer while
   // the free camera is up. Every figure is a measurement: the live sun/Earth state is the same
@@ -472,6 +529,7 @@ async function boot() {
         hud.bind('ex-open', '—');
         hud.bind('ex-clear-src', 'No horizon profile for this point.');
       }
+      renderAdvisors(s, sel.entry);
       refresh(nowH());
     }
     function refresh(h) {
@@ -1861,45 +1919,59 @@ async function boot() {
     // The same pool the selector ranks. Rebuilt here rather than reaching into the select
     // screen's scope: candidatePool is pure, so both reads cannot disagree.
     const trialPool = candidatePool(data);
-    const grid = document.getElementById('w-grid');
-    const bars = document.getElementById('w-bars');
+    const lanesEl = document.getElementById('w-lanes');
     const prog = document.getElementById('w-prog');
     const label = document.getElementById('w-label');
     const verdict = document.getElementById('w-verdict');
-    let run = null, token = 0, cells = [], barRows = new Map();
+    let run = null, token = 0, lanes = new Map();
 
     function build(result) {
-      grid.textContent = '';
-      cells = result.timeline.map(() => {
-        const cell = document.createElement('div');
-        cell.className = 'w-cell';
-        // One dot per site, in the pool's own order, so a reader can follow a single site
-        // across the whole grid by position.
-        const dots = result.sites.map(() => {
-          const d = document.createElement('i');
-          d.className = 'w-dot';
-          cell.appendChild(d);
-          return d;
-        });
-        grid.appendChild(cell);
-        return { cell, dots };
-      });
-      // Bars keep the pool order too, and are re-sorted only at the end: watching rows leapfrog
-      // mid-run would hide which site is actually gaining.
-      bars.textContent = '';
-      barRows = new Map();
-      for (const s of result.sites) {
-        const row = document.createElement('div');
-        row.className = 'w-bar' + (s.site.source === 'data' ? ' found' : '');
-        row.innerHTML = '<div class="w-bar-top"><i></i><b></b><em>0</em></div>'
-          + '<span class="w-bar-track"><span class="w-bar-fill"></span></span>'
-          + '<p class="w-bar-why"></p>';
-        row.querySelector('i').textContent = s.site.id;
-        row.querySelector('b').textContent = s.site.en;
-        bars.appendChild(row);
-        barRows.set(s.site.id, {
-          row, count: row.querySelector('em'),
-          fill: row.querySelector('.w-bar-fill'), why: row.querySelector('.w-bar-why'), n: 0,
+      // One lane per site, each holding one segment per requirement set. The previous shape put
+      // the sets on the outside (a hundred cells) and the sites on the inside (six 3px dots per
+      // cell), which made the comparison the screen exists for the hardest thing on it to read.
+      lanesEl.textContent = '';
+      lanes = new Map();
+      const total = result.timeline.length;
+      // Ordered by mean score, highest first -- NOT by survival. This is the whole argument of the
+      // screen: if a site's score predicted how much mission change it could absorb, the lanes
+      // would get shorter down the list. They do not. On the shipped pool Malapert Massif scores
+      // 0.750 and survives 20 sets while Shackleton Rim scores 0.638 and survives 50, so the
+      // longest lane sits at the bottom. Sorting by survival instead would hide that: the lanes
+      // would decrease neatly and the reversal would be invisible.
+      const byScore = [...result.sites].sort((a, b) => b.meanScore - a.meanScore);
+      for (const [rank, s] of byScore.entries()) {
+        const lane = document.createElement('div');
+        lane.className = 'w-lane' + (s.site.source === 'data' ? ' found' : '');
+        lane.innerHTML = '<i class="w-lane-id"></i><b class="w-lane-name"></b>'
+          + '<span class="w-lane-track"></span><em class="w-lane-count">0</em>'
+          + '<p class="w-lane-why"></p>';
+        lane.querySelector('.w-lane-id').textContent = s.site.id;
+        lane.dataset.rank = String(rank + 1);
+        // Score rank, name, and the measured night length on one line: the rank is the claim being
+        // tested, and the night is the reason the lane breaks where it does. Putting the cause
+        // beside the effect is what lets the chart be read without the paragraph above it.
+        const nm = lane.querySelector('.w-lane-name');
+        nm.textContent = `${rank + 1}. ${s.site.en}`;
+        const night = s.site.stats?.longest_dark_h;
+        if (Number.isFinite(night)) {
+          const sub = document.createElement('span');
+          sub.className = 'w-lane-night';
+          sub.textContent = `${night} h night`;
+          nm.appendChild(sub);
+        }
+        const track = lane.querySelector('.w-lane-track');
+        const segs = [];
+        for (let i = 0; i < total; i++) {
+          const seg = document.createElement('i');
+          seg.className = 'w-seg';
+          track.appendChild(seg);
+          segs.push(seg);
+        }
+        lanesEl.appendChild(lane);
+        lanes.set(s.site.id, {
+          lane, segs, n: 0,
+          count: lane.querySelector('.w-lane-count'),
+          why: lane.querySelector('.w-lane-why'),
         });
       }
     }
@@ -1909,41 +1981,69 @@ async function boot() {
     async function play(result, instant) {
       const me = ++token;
       const total = result.timeline.length;
-      for (const b of barRows.values()) { b.n = 0; b.count.textContent = '0'; b.fill.style.width = '0'; b.why.textContent = ''; }
+      for (const l of lanes.values()) {
+        l.n = 0; l.count.textContent = '0'; l.why.textContent = '';
+        l.lane.classList.remove('lead', 'alive');
+        for (const s of l.segs) s.className = 'w-seg';
+      }
       const order = result.sites.map((s) => s.site.id);
       for (let i = 0; i < total; i++) {
         if (me !== token) return;                 // a replay or a skip superseded this run
         const step = result.timeline[i];
-        const c = cells[i];
         const deadIds = new Set(step.dead.map((d) => d.id));
-        c.cell.classList.add('now');
-        order.forEach((id, k) => c.dots[k].classList.add(deadIds.has(id) ? 'out' : 'lit'));
+        // Fill column i of every lane at once: the same requirement set judged against all six
+        // sites, which is the comparison a reader is here to make.
         for (const id of order) {
-          if (deadIds.has(id)) continue;
-          const b = barRows.get(id);
-          b.n += 1;
-          b.count.textContent = String(b.n);
-          b.fill.style.width = `${(b.n / total) * 100}%`;
+          const l = lanes.get(id);
+          if (!l) continue;
+          const dead = deadIds.has(id);
+          const seg = l.segs[i];
+          seg.className = `w-seg now ${dead ? 'dead' : 'alive'}`;
+          if (i > 0) l.segs[i - 1].classList.remove('now');
+          l.lane.classList.toggle('alive', !dead);
+          if (!dead) {
+            l.n += 1;
+            l.count.textContent = String(l.n);
+          }
         }
         prog.textContent = `${i + 1} / ${total}`;
         label.textContent = step.world.label;
-        if (!instant) await new Promise((r) => setTimeout(r, reducedMotion.matches ? 0 : 26));
+        // Pacing, in three stages. 26 ms a set ran the whole trial in 2.6 s, which was over
+        // before a viewer had found the chart. Holding longer only on sets that eliminate
+        // something does not help either: 90 of the 100 sets eliminate at least one site, so
+        // that rule is nearly uniform.
+        //
+        // So the rhythm follows the viewer instead of the data: the first sets are slow enough
+        // to read a lane and understand what a break means, the middle runs fast so a hundred
+        // sets feel like a hundred, and the last few slow down again so the result lands rather
+        // than simply stopping. Skip to result is always there for anyone who would rather not
+        // watch it.
+        if (!instant) {
+          const hold = reducedMotion.matches ? 0
+            : i < 6 ? 420 - i * 45          // 420 down to 195: the rules, legibly
+            : i > total - 8 ? 150 + (i - (total - 8)) * 55   // 150 up to 530: the close
+            : 60;                            // the body of the run
+          await new Promise((r) => setTimeout(r, hold));
+        }
         if (me !== token) return;
-        c.cell.classList.remove('now');
-        c.cell.classList.add('done', deadIds.size === 0 ? 'all' : deadIds.size >= order.length ? 'none' : 'some');
       }
+      // Clear the head marker from the final column.
+      for (const l of lanes.values()) l.segs[total - 1]?.classList.remove('now');
       if (me !== token) return;
-      // Only now reorder, and say why each site fell short.
       const ranked = [...result.sites];
+      // The lane order is NOT touched here. It stays in score order from build(), because that
+      // order is the argument: re-sorting by survival at the end would make the lanes decrease
+      // neatly down the list and erase the mismatch the screen exists to show. Only the
+      // per-lane explanation and the winner's highlight are filled in.
       for (const s of ranked) {
-        const b = barRows.get(s.site.id);
-        if (!b) continue;
-        b.why.textContent = s.survived === result.worlds.length
+        const l = lanes.get(s.site.id);
+        if (!l) continue;
+        l.why.textContent = s.survived === result.worlds.length
           ? 'met every requirement in every set'
           : s.weakness ? `most often ruled out on: ${s.weakness.toLowerCase()}` : '';
-        bars.appendChild(b.row);
       }
-      barRows.get(ranked[0].site.id)?.row.classList.add('lead');
+      // The most durable site, wherever it sits in the score order -- that is the point.
+      lanes.get(ranked[0].site.id)?.lane.classList.add('lead');
       verdict.textContent = worldsSummarise(result);
       label.textContent = '';
     }

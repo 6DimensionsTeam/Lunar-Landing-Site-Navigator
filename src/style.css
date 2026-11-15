@@ -1230,9 +1230,9 @@ body {
 #home.in .dock > * { animation: riseIn 0.9s 1.1s both var(--ease); }
 #home.in .dock > .cta-stack { animation-delay: 1.3s; }       /* both side panels appear together, the button follows */
 /* ---------- robustness trial: one hundred requirement sets ---------- */
-/* The grid is the argument: a hundred cells, each a requirement set, each holding one dot per
-   candidate site. Watching the dots go out is watching a site's claim narrow, and a site that
-   keeps its dot lit across the whole grid is the one the trial is looking for. */
+/* The lanes are the argument: one line per candidate site, running across the hundred requirement
+   sets, broken wherever that set ruled the site out. The site whose line survives the most sets
+   is the one the trial is looking for, and it is not always the site with the highest score. */
 #worlds .w-ttl { top: 11vh; max-width: min(46ch, 42vw); }
 .w-stage {
   position: absolute;
@@ -1240,12 +1240,22 @@ body {
   right: var(--pad);
   bottom: 11vh;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(240px, 24vw);
+  /* One column now. The second column held the survival bars, which duplicated the lanes'
+     own counts; the verdict and provenance that remain belong under the chart, not beside it. */
+  grid-template-columns: minmax(0, 1fr);
   gap: clamp(16px, 2.5vw, 40px);
   align-items: end;
   pointer-events: auto;
 }
-.w-gridwrap { min-width: 0; }
+/* The chart needs its own ground. Sitting directly on the render, white bars competed with lit
+   crater rims and the grey track vanished over bright terrain -- the contrast varied across the
+   width of the same bar. A flat translucent black panel, the same one the dock panels use. */
+.w-gridwrap {
+  min-width: 0;
+  padding: 1.1em 1.3em 1.2em;
+  background: rgba(5, 6, 8, 0.82);
+  border: 1px solid var(--line);
+}
 .w-cap {
   display: flex;
   align-items: baseline;
@@ -1257,41 +1267,112 @@ body {
 }
 .w-cap span { color: var(--fg); font-variant-numeric: tabular-nums; }
 .w-cap em { font-style: normal; color: var(--fg2); letter-spacing: 0.06em; text-transform: none; }
-.w-grid {
+/* One row per site: an id, a name, the lane itself, and the running count. The lane is the
+   subject -- a site that survives is an unbroken line, and the answer to "which site is still
+   standing" is whichever line has the least red in it. */
+.w-lanes { display: grid; gap: 7px; }
+.w-lane {
   display: grid;
-  grid-template-columns: repeat(20, 1fr);
-  gap: 3px;
-  max-width: 760px;
+  grid-template-columns: 2.2em minmax(0, 11em) minmax(0, 1fr) 3.2em;
+  grid-template-rows: auto auto;
+  align-items: center;
+  column-gap: 0.8em;
+  opacity: 0.55;
+  transition: opacity 0.3s;
 }
-.w-cell {
+/* The id, track and count span both rows so they stay centred against the name block, which is
+   two lines (name plus night) with the weakness note under it. */
+.w-lane-id, .w-lane-track, .w-lane-count { grid-row: 1 / 3; }
+.w-lane.alive { opacity: 1; }
+.w-lane-id {
+  justify-self: start;
+  padding: 0.15em 0.4em;
+  font: 700 0.76em/1 var(--sans);
+  letter-spacing: 0.08em;
+  background: var(--fg);
+  color: #111;
+}
+.w-lane.found .w-lane-id { background: transparent; border: 1px solid var(--red); color: var(--red); }
+.w-lane-name {
+  overflow: hidden;
+  font: 600 0.84em/1.2 var(--sans);
+  letter-spacing: 0.06em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: uppercase;
+  color: var(--fg2);
+}
+/* The measured night, under the name: the cause of the break pattern beside the lane that shows
+   it. Not uppercase, so it reads as a figure rather than a second label. */
+.w-lane-night {
+  display: block;
+  margin-top: 0.15em;
+  font: 500 0.82em/1 var(--sans);
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--dim);
+}
+.w-lane.lead .w-lane-name { color: #fff; }
+/* The track holds one segment per requirement set, so a break is a gap in a line rather than a
+   colour in a cell. 100 segments across ~1fr means each is a couple of pixels wide: thin enough
+   that the line reads as continuous, wide enough that a run of failures is visible as a block. */
+.w-lane-track {
   position: relative;
-  aspect-ratio: 1;
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  align-content: center;
-  justify-items: center;
-  gap: 1px;
-  padding: 2px;
-  background: rgba(242, 244, 245, 0.04);
-  border: 1px solid rgba(242, 244, 245, 0.09);
-  opacity: 0.25;
-  transition: opacity 0.2s, background 0.25s, border-color 0.25s;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  /* No gap between segments. A 1px gap on a ~4px segment broke every lane into stripes, so a
+     surviving run looked just as discontinuous as an eliminated one and the whole point of
+     drawing a line was lost. Adjacent segments of the same colour now read as one bar. */
+  height: 18px;
+  background: rgba(242, 244, 245, 0.05);
 }
-/* The cell the trial is on right now */
-.w-cell.now { opacity: 1; border-color: var(--fg); background: rgba(242, 244, 245, 0.16); }
-/* Cells already run, coloured by how the set went */
-.w-cell.done { opacity: 1; }
-.w-cell.done.all { background: rgba(242, 244, 245, 0.17); border-color: rgba(242, 244, 245, 0.4); }
-.w-cell.done.some { background: rgba(226, 32, 15, 0.14); border-color: rgba(226, 32, 15, 0.42); }
-.w-cell.done.none { background: rgba(226, 32, 15, 0.3); border-color: var(--red); }
-.w-dot {
-  width: 2px;
-  height: 2px;
-  background: rgba(242, 244, 245, 0.22);
-  transition: background 0.2s;
+/* Survival is the measured quantity, so survival carries the visual weight. The first version had
+   this backwards: elimination was solid red and survival was pale grey, so the eye read the red
+   run as the bar and the chart appeared to say the opposite of what it says. Red at 0.85 opacity
+   beside white simply wins, whatever the labels claim. Now the surviving run is solid and the
+   ruled-out run recedes into the track. */
+.w-seg { background: transparent; transition: background 0.18s; }
+.w-seg.alive { background: var(--fg); }
+.w-seg.dead { background: rgba(226, 32, 15, 0.22); }
+/* The set being evaluated right now, so the eye has a moving head to follow down every lane at
+   once. A full-height marker rather than a segment tint: it has to be findable at 2px wide. */
+.w-seg.now { background: #fff; box-shadow: 0 0 7px 2px rgba(255, 255, 255, 0.75); z-index: 2; }
+.w-seg.now.dead { background: var(--red); box-shadow: 0 0 9px 3px rgba(226, 32, 15, 0.95); }
+.w-lane-count {
+  justify-self: end;
+  font: 700 1.05em/1 var(--sans);
+  font-variant-numeric: tabular-nums;
+  color: var(--fg2);
 }
-.w-dot.lit { background: var(--fg); }
-.w-dot.out { background: var(--red); }
+.w-lane.lead .w-lane-count { color: #fff; }
+/* Under the name, not under the track: in column 3 it sat on top of the next lane's bar. The
+   name column has the vertical room for it and it belongs with the site, not with the axis. */
+.w-lane-why {
+  grid-column: 2;
+  grid-row: 2;
+  margin: 0.1em 0 0;
+  font: 500 0.7em/1.25 var(--sans);
+  letter-spacing: 0.03em;
+  color: var(--dim);
+}
+.w-order {
+  max-width: 76ch;
+  margin: 0 0 0.7em;
+  font: 500 0.8em/1.45 var(--sans);
+  letter-spacing: 0.03em;
+  color: var(--fg2);
+}
+/* The scale above the lanes, so a reader knows the axis is the hundred sets. */
+.w-axis {
+  display: flex;
+  justify-content: space-between;
+  margin: 0 0 0.5em;
+  padding-left: calc(2.2em + 9em + 1.6em);
+  font: 600 0.68em/1 var(--sans);
+  letter-spacing: 0.12em;
+  color: var(--dim);
+}
 
 .w-legend {
   display: flex;
@@ -1303,25 +1384,14 @@ body {
   color: var(--dim);
 }
 .w-legend i { display: inline-block; width: 0.75em; height: 0.75em; margin-right: 0.4em; vertical-align: -0.05em; border: 1px solid; }
-.w-k-alive { background: rgba(242, 244, 245, 0.17); border-color: rgba(242, 244, 245, 0.4) !important; }
-.w-k-part { background: rgba(226, 32, 15, 0.14); border-color: rgba(226, 32, 15, 0.42) !important; }
-.w-k-none { background: rgba(226, 32, 15, 0.3); border-color: var(--red) !important; }
+/* Two keys now, matching the two states a lane segment can be in. The old third key described a
+   per-set outcome ("no site met every requirement"), which the lane view no longer draws. */
+.w-k-alive { background: var(--fg); border-color: var(--fg) !important; }
+.w-k-none { background: rgba(226, 32, 15, 0.22); border-color: rgba(226, 32, 15, 0.5) !important; }
 
-.w-tally { background: rgba(5, 6, 8, 0.78); border: 1px solid var(--line); padding: 1em 1.1em 1.1em; }
+/* No longer a side panel: the verdict and its provenance read as a caption under the chart. */
+.w-tally { max-width: 92ch; padding: 0.2em 0 0; }
 .w-tally h2 { margin: 0 0 0.7em; font: 700 0.9em/1 var(--sans); letter-spacing: 0.16em; color: var(--fg); }
-.w-bar { margin-bottom: 0.55em; font: 600 0.8em/1.3 var(--sans); }
-.w-bar-top { display: flex; align-items: baseline; gap: 0.5em; }
-.w-bar-top i {
-  font-style: normal; font-weight: 700; letter-spacing: 0.08em;
-  padding: 0.14em 0.36em 0.1em; background: var(--red); color: #fff; font-size: 0.88em;
-}
-.w-bar.found .w-bar-top i { background: transparent; border: 1px solid var(--red); color: var(--red); }
-.w-bar-top b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); font-weight: 600; }
-.w-bar-top em { font-style: normal; color: var(--fg); font-variant-numeric: tabular-nums; }
-.w-bar-track { height: 3px; margin-top: 0.3em; background: rgba(242, 244, 245, 0.12); }
-.w-bar-fill { display: block; height: 100%; background: var(--fg); width: 0; transition: width 0.25s linear; }
-.w-bar.lead .w-bar-fill { background: var(--red-hi); }
-.w-bar-why { margin: 0.2em 0 0; font: 500 0.88em/1.3 var(--sans); color: var(--dim); }
 .w-note { margin: 0.8em 0 0; font: 600 0.84em/1.45 var(--sans); color: var(--fg); }
 .w-tally .credit { margin-top: 0.7em; font: 500 0.72em/1.45 var(--sans); color: var(--dim); }
 
@@ -1337,13 +1407,30 @@ body {
   .w-stage { grid-template-columns: minmax(0, 1fr); gap: 14px; bottom: 9vh; }
   .w-tally { max-height: 28vh; overflow-y: auto; }
   #worlds .w-ttl { max-width: 60vw; }
+  /* The stage stops sitting beside the title at this width and goes under it instead, so the
+     title has to give up its description here too -- not 340px lower down. Measured at 857x802:
+     the title ran to y=368 while the stage started at y=227, so it covered the caption and the
+     top two rows of the grid. The stage is bottom-anchored and grows upward, which is why the
+     collision lands on the grid rather than pushing anything down. */
+  #worlds .w-ttl .ttl-d { display: none; }
+  /* Bound the stage's own top edge as well, so a tall tally can never reach back into the title. */
+  .w-stage { top: 30vh; align-content: end; }
+  /* Six lanes need 344px; a 34vh cap (273px at 802px tall) clipped the last two, and a chart
+     whose bottom rows are missing cannot be compared at all. The lanes are the screen's content,
+     so they get the space and the caption below them is what scrolls if anything has to. */
+  .w-lanes { max-height: none; }
+  .w-tally { max-height: 22vh; overflow-y: auto; }
 }
 @media (max-width: 760px) {
-  #worlds .w-ttl .ttl-d { display: none; }
-  .w-grid { grid-template-columns: repeat(10, 1fr); }
+  /* The name column is the first thing to go: the id and the lane carry the comparison, and a
+     six-row chart with two-character ids is still readable without the full site names. */
+  .w-lane { grid-template-columns: 2.2em minmax(0, 1fr) 2.8em; gap: 0.6em; }
+  .w-lane-name { display: none; }
+  .w-lane-why { grid-column: 2 / -1; }
+  .w-axis { padding-left: calc(2.2em + 0.6em); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .w-cell, .w-dot, .w-bar-fill { transition: none !important; }
+  .w-seg, .w-lane { transition: none !important; }
 }
 
 /* ---------- explore: site readout down the right edge ---------- */
@@ -1388,6 +1475,29 @@ body {
 .adv.no i { color: var(--red-hi); }
 .adv b { font-weight: 700; color: var(--fg); }
 .adv span { grid-column: 2; color: var(--fg2); }
+/* An open question is neither a pass nor a failure, so it gets neither colour. */
+.adv.open i { color: var(--fg2); }
+/* The question carries the row; the scope and limits sit under it in a quieter voice. Joined as
+   one paragraph the disclaimers were longer than the question and read as the point. */
+.adv-ask { grid-column: 2; color: var(--fg); }
+.adv-fine {
+  grid-column: 2;
+  margin-top: 0.3em;
+  font-size: 0.9em;
+  line-height: 1.45;
+  color: var(--dim);
+}
+.adv-src {
+  grid-column: 2;
+  justify-self: start;
+  margin-top: 0.25em;
+  font-size: 0.92em;
+  letter-spacing: 0.04em;
+  color: var(--dim);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.adv-src:hover, .adv-src:focus-visible { color: var(--fg); }
 /* This used to be `display: none`, which removed every measurement on the surface screen -- site,
    ground, live sun/Earth state, endurance, hazards, and the flight-history panel -- at the widest
    breakpoint in the file, so a split laptop window lost them too, not just a phone. The reason it

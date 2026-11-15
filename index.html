@@ -114,6 +114,10 @@
             </dl>
             <p class="credit" data-k="ex-src">—</p>
           </section>
+          <section class="panel" id="ex-advisors" hidden aria-labelledby="ex-adv-h">
+            <h2 id="ex-adv-h">Flight History Review</h2>
+            <div id="ex-adv-list"></div>
+          </section>
 
           <section class="panel" aria-labelledby="ex-light-h">
             <h2 id="ex-light-h">Sun &amp; Earth <span class="live-dot" data-pill="ex-live">LIVE</span></h2>
@@ -145,11 +149,6 @@
             <h2 id="ex-zone-h">Ground Classes</h2>
             <dl class="rows legend" id="ex-legend"></dl>
             <p class="credit" data-k="ex-zone-note">—</p>
-          </section>
-
-          <section class="panel" id="ex-advisors" hidden aria-labelledby="ex-adv-h">
-            <h2 id="ex-adv-h">Flight History Review</h2>
-            <div id="ex-adv-list"></div>
           </section>
         </div>
         <button id="torover" class="cta2 rover-cta" type="button">Rover Close-up</button>
@@ -405,15 +404,26 @@
         <div class="w-stage">
           <div class="w-gridwrap">
             <p class="w-cap"><span id="w-prog">0 / 100</span><em id="w-label">&nbsp;</em></p>
-            <div id="w-grid" class="w-grid" role="img" aria-label="One hundred requirement sets, one cell each"></div>
-            <p class="w-legend"><i class="w-k-alive"></i>met every requirement
-              <i class="w-k-part"></i>some sites failed
-              <i class="w-k-none"></i>no site met every requirement</p>
+            <!-- One lane per site, running left to right across the hundred requirement sets. The
+                 grid this replaced made the sets the subject and squeezed six site dots into each
+                 35px cell, so the one thing it existed to show -- which site keeps surviving --
+                 was unreadable. Here a site is a line, and a line that stays unbroken is the
+                 answer. -->
+            <!-- Saying the order out loud matters: a reader who assumes the lanes are sorted by
+                 length will read the bottom lane being the longest as a rendering fault rather
+                 than as the finding. -->
+            <p class="w-order">Ordered by overall score, best first. If score predicted endurance,
+              each lane would be shorter than the one above it.</p>
+            <p class="w-axis" aria-hidden="true"><span>SET 1</span><span>25</span><span>50</span><span>75</span><span>100</span></p>
+            <div id="w-lanes" class="w-lanes" role="img" aria-label="Survival of each site across one hundred requirement sets"></div>
+            <p class="w-legend"><i class="w-k-alive"></i>met every requirement in that set
+              <i class="w-k-none"></i>ruled out</p>
           </div>
 
+          <!-- The survival bars that used to sit here said the same thing as the lanes' own
+               counts, in the same order, and overlapped the last two lanes while doing it. The
+               verdict sentence and the provenance note are what is left. -->
           <div class="w-tally">
-            <h2>Survival count</h2>
-            <div id="w-bars"></div>
             <p class="w-note" id="w-verdict">Running&hellip;</p>
             <p class="credit">Counts over the sets listed, not probabilities: nothing here weights
               one requirement set as more likely than another. Year-to-year differences are
