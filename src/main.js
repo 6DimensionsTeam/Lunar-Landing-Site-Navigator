@@ -803,6 +803,8 @@ async function boot() {
     // P2 wires up here
     if (!(import.meta.env.DEV && new URLSearchParams(location.search).has('trim'))) {
       const { createMission } = await import('./mission.js');
+      const { installExploreNavigation } = await import('./explore-navigation.js');
+      installExploreNavigation({ root: hud.screen('explore'), onReturn: backFromSurface });
       const missionFlow = createMission({
         eph,
         data,
@@ -841,7 +843,9 @@ async function boot() {
         // Only one callback per display frame may continue the surface chain.
         if (t === lastSurfaceTick) return;
         lastSurfaceTick = t;
-        if (globeShown) return;
+        // P1 owns its own loop during and after descent. Stop this chain and
+        // let the existing resumeFrame() re-arm it when P1 releases the screen.
+        if (globeShown || ownSurface) { surfaceStopped = true; return; }
         const stage = missionFlow.stage;
         const missionVisible = !missionRoot.hidden && !missionRoot.classList.contains('out');
         const covered = missionVisible && (stage === 'boot' || stage === 'orbit' || stage === 'pad' || stage === 'flight');
