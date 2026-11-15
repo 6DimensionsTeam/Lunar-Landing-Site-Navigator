@@ -15,7 +15,7 @@ import { createStation, STATION, CORE_TRIM } from './scene/station.js';
 import { createRover } from './scene/rover.js';
 import { createZones } from './zones.js';
 import { createGlobe } from './scene/globe.js';
-import { rankSites, statsFor, explain } from './rank.js';
+import { rankSites, statsFor, explain, candidatePool } from './rank.js';
 
 // Home-screen epoch: 2028-09-29 12:00 UTC. Seen from Shackleton, Earth (a 15%-lit crescent) and the Sun both stand only 1.7–3° above the horizon,
 // about 45° apart in azimuth, straddling the south polar ridge. The clock then runs forward at real speed.
@@ -423,7 +423,7 @@ async function boot() {
       hud.setRover({
         v: st.v, bearing: (b + 360) % 360, slope: st.slope, pitch: st.pitch, mode: rover.MODE_EN[st.mode],
         odo: st.odo, dist: Math.hypot(st.x, st.y), sunEl: deg(Math.asin(THREE.MathUtils.clamp(st.sunUp, -1, 1))),
-        lit: st.lit, power: st.power, warn: st.warn, hlOn: st.hlOn, jumped,
+        lit: st.lit, power: st.power, warn: st.warn, rockBlocked: st.rockBlocked, hlOn: st.hlOn, jumped,
         pan: deg(rover.mast.pan), tilt: deg(rover.mast.tilt), range: st.range,
       });
     }
@@ -610,6 +610,7 @@ async function boot() {
   hud.onRover(() => enterRover());
   hud.onRoverBack(() => leaveRover());
   hud.onLights(() => rover.toggleLights());
+  hud.onDriveThrough(() => rover.driveThrough());
   const toggleNav = () => { hud.navcam(!hud.navcam()); pipRect = null; };
   hud.onNavcam(toggleNav);
   hud.onCardClose(() => { sel = null; hud.closeCard(); });
@@ -914,14 +915,27 @@ async function boot() {
     // Each marker also carries a leader line, used only when the label has had to be moved
     // off its own anchor to clear another label (see layoutMarks). The square stays on the
     // site; the leader is what keeps a moved name attached to it.
+    // Both sources into one pool: the four published Artemis regions and the places the grid
+    // scan found. Tagged inside candidatePool() so the list can tell a reader which is which.
+    const pool = candidatePool(data);
+    // How many rows the panel can carry before it stops being scannable. The rest are counted,
+    // not hidden silently -- a list that just stops reads as the whole answer.
+    const LIST_MAX = 8;
+    const MAP_MARKS = 4;   // markers are far more crowded than list rows
     const mkHost = document.getElementById('sel-sites');
     const marks = {};
-    for (const s of data.sites.sites) {
+    // One marker per pool entry, built up front and shown or hidden per frame: the ranked set
+    // changes whenever a requirement changes, and rebuilding DOM per change would lose the
+    // label measurements layoutMarks caches.
+    for (const s of pool) {
       const mk = document.createElement('div');
       mk.className = 'site off';
       mk.innerHTML = '<i></i><svg class="lead" aria-hidden="true"><polyline points="0,0 0,0" /></svg><span><b></b></span>';
       mk.querySelector('b').textContent = s.id;
       mk.querySelector('span').append(s.en);
+      // A marker for a place our scan found is drawn hollow, matching how its row is marked in
+      // the list: the two kinds of claim must not look identical on the map either.
+      if (s.source === 'data') mk.classList.add('found');
       mkHost.appendChild(mk);
       marks[s.id] = { el: mk, lead: mk.querySelector('.lead polyline'), label: mk.querySelector('span') };
     }
@@ -969,14 +983,22 @@ async function boot() {
       // The requirements P2 collected are what make this a ranking rather than a table: the
       // list is ordered by how well each site meets the mission as configured, and a site that
       // fails one is moved below every site that does.
-      const ranked = rankSites(data.sites.sites, zones, year, missionNeeds);
-      for (const entry of ranked) {
+      const ranked = rankSites(pool, zones, year, missionNeeds);
+      // The pool is nineteen places now; listing all of them under a three-line-row budget
+      // would either overflow the panel or squeeze every row to unreadable. The list shows the
+      // ones worth acting on and says how many were left behind, rather than silently cutting.
+      const shown = ranked.slice(0, LIST_MAX);
+      const hidden = ranked.length - shown.length;
+      shown.forEach((entry) => {
         const s = entry.site, st = entry.stats;
         const row = document.createElement('div');
         row.className = entry.meetsAll ? 'ok' : 'no';
         row.innerHTML = '<dt><i></i><span class="nm"></span><em></em></dt><dd><span class="fig"></span><span class="why"></span></dd>';
         row.querySelector('i').textContent = s.id;
         row.querySelector('.nm').textContent = s.en;
+        // A published region and a place our own scan found are different claims; the chip
+        // says which without needing a legend.
+        if (s.source === 'data') row.classList.add('found');
         row.querySelector('em').textContent = entry.meetsAll ? 'MEETS' : 'FAILS';
         row.querySelector('.fig').textContent =
           `${st.sun_visible_pct.toFixed(1)}% sun · ${st.earth_visible_pct.toFixed(1)}% link · ${st.longest_dark_h} h dark`;
@@ -994,6 +1016,17 @@ async function boot() {
         });
         row.style.cursor = 'pointer';
         siteListHost.appendChild(row);
+      });
+      // Say what was left out, and where the markers are. The map marks only what the list
+      // actually shows: the top few sit within about 150 km of each other near the pole, and
+      // a marker per row turns that cluster into unreadable overlapping labels. The list is
+      // the full answer; the map is a locator for it.
+      globe.setSites(shown.slice(0, MAP_MARKS).map((e) => e.site));
+      if (hidden > 0) {
+        const more = document.createElement('div');
+        more.className = 'more';
+        more.textContent = `+${hidden} more in the pool, none meeting the mission better`;
+        siteListHost.appendChild(more);
       }
     }
     buildSiteList(null);
@@ -1042,8 +1075,11 @@ async function boot() {
     const slots = [];
     function layoutMarks(w, h) {
       slots.length = 0;
-      for (const s of data.sites.sites) {
+      // Only the markers currently on the map get laid out; the marker set follows the ranked
+      // list (see buildSiteList), not the whole pool.
+      for (const s of globe.siteDirs.map((d) => d.site)) {
         const m = marks[s.id];
+        if (!m) continue;
         const p = globe.screenOf(s, w, h);
         const onFront = p && p.front && p.x > 8 && p.x < w - 8 && p.y > 8 && p.y < h - 8;
         m.el.classList.toggle('off', !onFront);

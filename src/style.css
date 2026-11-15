@@ -649,6 +649,25 @@ body {
 /* ---------- landing-zone survey (globe) ---------- */
 .legend { grid-area: sites; justify-self: start; width: var(--dock-w); box-sizing: border-box; }
 .legend h2::before { content: ''; width: 0.55em; height: 0.55em; background: var(--fg); }
+/* The dock is anchored to the bottom edge, so whatever is inside it grows upward: a long list
+   does not overflow the bottom of the screen, it lifts the whole panel over the title block.
+   Capping the dock's height and letting the list scroll keeps the panels where they belong
+   however many candidates there are. */
+/* The dock is anchored to the bottom edge, so whatever is inside it grows upward: a long list
+   does not overflow the bottom of the screen, it lifts the whole panel over the title block.
+   Capping the dock's height and letting the list scroll keeps the panels where they belong
+   however many candidates there are. 46vh leaves the title block its full height. */
+#select .dock { max-height: calc(100vh - 46vh); }
+/* A grid item stretches to its row, but its content can still be taller than that row and
+   push the row with it; the panel has to be the thing that refuses to grow. */
+#select .legend, #select .live {
+  max-height: calc(100vh - 46vh);
+  min-height: 0;
+  overflow: hidden;
+}
+#sel-site-list { overflow-y: auto; overscroll-behavior: contain; min-height: 0; }
+#sel-site-list::-webkit-scrollbar { width: 4px; }
+#sel-site-list::-webkit-scrollbar-thumb { background: rgba(242, 244, 245, 0.3); }
 .legend-rows dt { display: flex; align-items: center; gap: 0.6em; }
 .legend-rows .swatch { display: inline-block; width: 0.9em; height: 0.9em; border: 1px solid var(--line-hi); flex: none; }
 #select .cta-stack { justify-self: center; align-self: end; gap: 0.6em; }
@@ -663,7 +682,14 @@ body {
 #select .ttl-d { color: var(--fg); }
 /* site chip over the globe: identical to the home screen's own .site marker, so the two
    views read as one survey rather than a 3D viewport bolted on next to a 2D one */
-#sel-sites { position: absolute; inset: 0; pointer-events: none; }
+/* Stacking on this screen, explicit rather than left to DOM order: markers over the map,
+   panels over the markers. A marker drifting across a panel makes the panel's own text
+   unreadable, and it is the panel that has to win -- the marker has the map to sit on. */
+#sel-sites { position: absolute; inset: 0; pointer-events: none; z-index: 1; }
+#select .ttl { z-index: 3; }
+#select .dock { z-index: 4; }
+#select .topbar { z-index: 4; }
+#sel-tip { z-index: 5; }
 #sel-sites .site { pointer-events: none; }
 /* When two candidates project close together the name is pushed clear along the screen's y
    axis while the square stays on the site, and this hairline keeps the two tied together --
@@ -672,17 +698,22 @@ body {
 #sel-sites .site .lead { position: absolute; left: 0; top: 0; width: 1px; height: 1px; overflow: visible; visibility: hidden; }
 #sel-sites .site.lead-on .lead { visibility: visible; }
 #sel-sites .site .lead polyline { fill: none; stroke: var(--line-hi); stroke-width: 1; }
-/* Coordinate tape on the left edge of the map: a graduated scale in the map's own units,
-   positioned by the script at the distance each mark actually represents, so the cap reads
-   as a measured surface rather than an unlabelled picture. */
+/* Coordinate tape: down the right edge, in the band above the panels. Below that there is no
+   free column -- the dock's panels take the full width -- so the scale covers the part of the
+   map that is actually unobstructed, and both marks and labels sit inside it. */
 .tape {
   position: absolute;
-  left: 34px;
-  top: 0;
-  bottom: 0;
+  right: 30px;
+  left: auto;
+  top: 23vh;
+  height: 14vh;
   width: 76px;
   pointer-events: none;
 }
+/* Marks grow leftward from the right edge, so the labels sit inside the map. */
+.tape i { left: auto; right: 0; }
+.tape i::after { left: auto; right: 13px; text-align: right; }
+.tape::after { left: auto; right: 0; text-align: right; }
 .tape i {
   position: absolute;
   left: 0;
@@ -754,6 +785,18 @@ body {
 #sel-site-list div.no .why { color: rgba(139, 151, 158, 0.72); }
 #sel-site-list div.sel { background: rgba(242, 244, 245, 0.07); }
 #sel-site-list div.sel dt { color: #fff; }
+/* A place our own scan found, as against a region NASA published. Marked on the id chip
+   rather than the name, so the two read as the same kind of row with a different provenance. */
+#sel-site-list div.found dt i { background: transparent; border: 1px solid var(--red); color: var(--red); }
+#sel-site-list .more {
+  margin-top: 0.4em;
+  padding-top: 0.4em;
+  border-top: 1px solid rgba(242, 244, 245, 0.1);
+  font: 600 0.78em/1.3 var(--sans);
+  letter-spacing: 0.08em;
+  color: var(--dim);
+  cursor: default;
+}
 
 /* ---------- site analysis ---------- */
 .analysis-panel { grid-area: sites; justify-self: start; width: var(--dock-w); box-sizing: border-box; }

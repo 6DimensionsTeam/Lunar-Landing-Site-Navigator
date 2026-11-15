@@ -82,7 +82,12 @@ export function createGlobe({ renderer, data, zones, radiusKm }) {
   // place with the .site chip (white-edged red square, name alongside) rather than a 3D
   // object, and screenOf below projects each one to the same screen position that chip
   // needs. Only their directions live here, for the projection and for the front/back test.
-  const siteDirs = data.sites.sites.map((s) => ({ id: s.id, site: s, dir: dirFromLatLon(s.lat, s.lon) }));
+  // Every point in the pool gets a marker slot; the caller decides which of them to show via
+  // setSites(), because nineteen markers at once is a wall, not a map.
+  let siteDirs = [];
+  function setSites(list) {
+    siteDirs = list.map((s) => ({ id: s.id, site: s, dir: dirFromLatLon(s.lat, s.lon) }));
+  }
 
   // Orientation is held as a quaternion the drag multiplies into, rather than as two angles.
   // Euler angles gimbal-lock exactly where this view spends its time, over the pole.
@@ -285,7 +290,8 @@ export function createGlobe({ renderer, data, zones, radiusKm }) {
 
   return {
     scene, camera, sphere, uniforms, attach, detach, pick, surfaceAt, screenOf, step, resize, render,
-    siteDirs,
+    setSites,
+    get siteDirs() { return siteDirs; },
     get dragged() { return dragged; },
     stopSpin: () => { spin = 0; },
     highlight: (zoneId) => { uniforms.uZoneSel.value = zoneId | 0; },

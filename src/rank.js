@@ -27,11 +27,24 @@ const CONTINUOUS_COMM_PCT = 80;
 // A crater floor is only claimed where the ground classification actually says so.
 const ICE_NEAR_KM = 25;
 
+// The pool the selector ranks: the four published Artemis candidate regions plus the places
+// found in the grid. Merged here so nothing downstream has to know they arrived in different
+// files, and tagged so the interface can tell a reader which is which -- "a region NASA
+// published" and "a place our own scan found" are different claims and must not look alike.
+export function candidatePool(data) {
+  const named = (data.sites?.sites || []).map((s) => ({ ...s, source: 'nasa' }));
+  const found = (data.candidates?.candidates || []).map((c) => ({ ...c, source: 'data' }));
+  return [...named, ...found];
+}
+
 export function rankSites(sites, zones, year, needs = {}) {
   const scored = sites.map((site) => evaluate(site, zones, year, needs));
   // Requirement failures sort last regardless of score; a site that meets everything always
-  // outranks one that does not, however good its numbers look in isolation.
-  scored.sort((a, b) => (a.fails.length - b.fails.length) || (b.score - a.score) || (a.site.id < b.site.id ? -1 : 1));
+  // outranks one that does not, however good its numbers look in isolation. Within a tier the
+  // published regions lead at equal score, since a reader can go and check those.
+  scored.sort((a, b) => (a.fails.length - b.fails.length) || (b.score - a.score)
+    || (a.site.source === b.site.source ? 0 : a.site.source === 'nasa' ? -1 : 1)
+    || (a.site.id < b.site.id ? -1 : 1));
   return scored;
 }
 
