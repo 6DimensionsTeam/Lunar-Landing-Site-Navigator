@@ -337,6 +337,11 @@ export function createHud({ bootSteps }) {
   const timers = new Map();
   function reveal(el) {
     clearTimeout(timers.get(el));
+    // Already on screen and already animated in: leave it alone. Stripping .in to force a
+    // reflow and adding it back replays the entrance on a screen the visitor is looking at,
+    // which is what made the mission flow's panels animate a second time after its own
+    // start-up had finished. A screen that is being shown fresh still gets the full replay.
+    if (!el.hidden && el.classList.contains('in') && !el.classList.contains('out')) return;
     el.classList.remove('out', 'in');
     el.hidden = false;
     void el.offsetWidth;                // retrigger the entrance animation

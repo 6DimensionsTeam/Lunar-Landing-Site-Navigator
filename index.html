@@ -405,9 +405,13 @@
             <p class="w-order">Ordered by overall score, best first. If score predicted endurance,
               each lane would be shorter than the one above it.</p>
             <p class="w-axis" aria-hidden="true"><span>SET 1</span><span>25</span><span>50</span><span>75</span><span>100</span></p>
-            <div id="w-lanes" class="w-lanes" role="img" aria-label="Survival of each site across one hundred requirement sets"></div>
+            <!-- Above the lanes, not below them. This box scrolls when the viewport is short --
+                 at 1000x620 the wrapping box is 210px tall against 324px of content -- and the
+                 legend sat past the fold, so a visitor could read the bars without the one key
+                 that says white means survived and red means ruled out. -->
             <p class="w-legend"><i class="w-k-alive"></i>met every requirement in that set
               <i class="w-k-none"></i>ruled out</p>
+            <div id="w-lanes" class="w-lanes" role="img" aria-label="Survival of each site across one hundred requirement sets"></div>
           </div>
 
           <!-- The survival bars that used to sit here said the same thing as the lanes' own
