@@ -76,7 +76,14 @@ function evaluate(site, zones, year, needs) {
   const comms = st.earth_visible_pct;
   const light = st.sun_visible_pct;
   const both = st.both_pct;
-  const darkOk = !Number.isFinite(needs.maxDarkH) || needs.maxDarkH <= 0
+  // A darkness limit of 0 is the strictest demand there is -- the mission tolerates no darkness
+  // at all -- but it read as "no requirement" because it was tested with `<= 0`, the same guard
+  // used for an absent value. Measured: 0 scored identically to leaving the field unset (0.6390
+  // at Shackleton Rim) while 1 h was the only setting that produced a failure, so the strictest
+  // input was 300 times looser than the one above it. Only an absent, non-finite or negative
+  // value now means "not asked for"; 0 is scored as the tightest bound, which the ratio below
+  // already expresses correctly once it is not skipped.
+  const darkOk = !Number.isFinite(needs.maxDarkH) || needs.maxDarkH < 0
     ? 1
     : Math.min(1, needs.maxDarkH / Math.max(1, st.longest_dark_h));
 
@@ -93,7 +100,7 @@ function evaluate(site, zones, year, needs) {
   if (commNeeded !== null && comms < commNeeded) {
     fails.push(`Earth link ${comms.toFixed(1)}%, below the ${commNeeded}% needed for continuous contact`);
   }
-  if (Number.isFinite(needs.maxDarkH) && needs.maxDarkH > 0 && st.longest_dark_h > needs.maxDarkH) {
+  if (Number.isFinite(needs.maxDarkH) && needs.maxDarkH >= 0 && st.longest_dark_h > needs.maxDarkH) {
     fails.push(`Longest night ${st.longest_dark_h} h, beyond the ${needs.maxDarkH} h the mission allows`);
   }
   if (needs.craterFloor) {
@@ -122,7 +129,11 @@ function evaluate(site, zones, year, needs) {
   if (commNeeded !== null) {
     verdicts.push({ key: 'comms', label: 'Earth link', pass: comms >= commNeeded, value: `${comms.toFixed(1)}%` });
   }
-  if (Number.isFinite(needs.maxDarkH) && needs.maxDarkH > 0) {
+  // Same rule as the score above: an absent or negative limit means the requirement was not
+  // asked for, but 0 is a real demand and has to produce its verdict row. With the old `> 0`
+  // guard a mission that allowed no darkness reported no dark verdict at all, so it looked
+  // like the requirement had not been set.
+  if (Number.isFinite(needs.maxDarkH) && needs.maxDarkH >= 0) {
     verdicts.push({ key: 'dark', label: 'Longest night', pass: st.longest_dark_h <= needs.maxDarkH, value: `${st.longest_dark_h} h worst` });
   }
   if (needs.craterFloor) verdicts.push({ key: 'crater', label: 'Crater floor', pass: !!ground && ground.zone !== 'rough', value: ground ? ground.zone : 'unmapped' });
@@ -196,7 +207,10 @@ export function compareSites(entries) {
 // The one-line answer a reader wants first: does this site work for the mission as stated,
 // and if so why. Kept here rather than in the view so the wording and the score cannot drift.
 export function explain(entry, needs = {}) {
-  const asked = Object.values(needs).some((v) => v === true) || (Number.isFinite(needs.maxDarkH) && needs.maxDarkH > 0);
+  // Must agree with the verdict guard above, or a mission allowing no darkness at all is told
+  // "no requirements were set" while its own dark verdict row says FAIL.
+  const asked = Object.values(needs).some((v) => v === true)
+    || (Number.isFinite(needs.maxDarkH) && needs.maxDarkH >= 0);
   if (!asked) {
     return entry.notes.length
       ? `No requirements were set, so this is ranked on measured conditions alone: ${entry.notes.join(', ')}.`

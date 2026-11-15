@@ -317,7 +317,7 @@ export function createAnnualCalendar({ root, data, zones, eph, getMission = () =
       : 'No site meets the annual criteria in every catalog year.'));
     if (plan.unknownYears.length) summary.append(node('p', 'ac-copy', `Unknown annual evidence: ${plan.unknownYears.join(', ')}. Unknown cells are not counted as a pass or a confirmed failure.`));
     const needs = getMission()?.needs || {};
-    const rules = [Number.isFinite(needs.maxDarkH) && needs.maxDarkH > 0 ? `dark ≤ ${needs.maxDarkH} h` : 'no dark limit'];
+    const rules = [Number.isFinite(needs.maxDarkH) && needs.maxDarkH >= 0 ? `dark ≤ ${needs.maxDarkH} h` : 'no dark limit'];
     // The bar itself is the user's own setting now (see rank.js's commBar), not always 80 --
     // stating the fixed figure here said a different number than the one the ranking actually
     // enforced whenever the mission screen's bar had been changed from its default.
