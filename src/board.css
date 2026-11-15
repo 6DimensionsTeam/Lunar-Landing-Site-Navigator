@@ -537,17 +537,13 @@
   .p2-board-launch img { width: 26px; height: 26px; }
   .p2-board-launch b { font-size: 13px; }
 }
-/* The 3D screens put their own title in the top centre, so the launcher moves to the right edge there. */
-#hud:has(> #explore:not([hidden]), > #rover:not([hidden]), > #orbit:not([hidden]), > #compare:not([hidden]), > #worlds:not([hidden])) .p2-board-launch {
-  left: auto;
-  right: max(16px, env(safe-area-inset-right));
-  top: 64px;
-  transform: none;
-}
+/* 3D screens and site-survey: anchor bottom-left so the launcher doesn't cover the site info panel
+   (top-right) or the candidates list (bottom-right). */
+#hud:has(> #explore:not([hidden]), > #rover:not([hidden]), > #orbit:not([hidden]), > #compare:not([hidden]), > #worlds:not([hidden])) .p2-board-launch,
 #hud:has(> #select:not([hidden]):not(.ac-calendar-open)) .p2-board-launch {
-  left: auto;
+  left: max(16px, env(safe-area-inset-left));
+  right: auto;
   top: auto;
-  right: max(16px, env(safe-area-inset-right));
-  bottom: max(60px, calc(env(safe-area-inset-bottom) + 44px));
+  bottom: max(80px, calc(env(safe-area-inset-bottom) + 64px));
   transform: none;
 }
