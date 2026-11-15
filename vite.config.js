@@ -25,14 +25,39 @@ function shotSaver() {
   };
 }
 
-// The build is a self-contained index.html: scripts, styles, fonts and terrain data all inlined, so it opens offline with a double click.
+// src/data.js imports every binary and image with Vite's `?inline` suffix, which base64s the
+// asset straight into the JS bundle however the build is configured. That is what the single-file
+// build wants, and it is also what pushed the hosted bundle to 31 MB on its own -- over Pages'
+// 25 MiB per-file cap even with the single-file plugin removed. For a hosted build this rewrites
+// the query to `?url`, so the same imports emit ordinary files the page fetches at runtime.
+function externaliseInlined() {
+  return {
+    name: 'externalise-inlined',
+    enforce: 'pre',
+    resolveId(source, importer) {
+      if (!source.includes('?inline')) return null;
+      return this.resolve(source.replace('?inline', '?url'), importer, { skipSelf: true });
+    },
+  };
+}
+
+// The build defaults to a self-contained index.html: scripts, styles, fonts and terrain data
+// all inlined, so it opens offline with a double click. That single file comes to about 37 MB,
+// which Cloudflare Pages refuses -- it caps any one file at 25 MiB -- so a hosted build sets
+// INLINE=0 to emit ordinary separate asset files instead. Largest asset is terrain_inner.bin at
+// 4.6 MB, so nothing approaches the cap that way.
+//
+// INLINE=0 npm run build      -> dist/ with separate files, for hosting
+// npm run build               -> dist/index.html only, for handing round or opening offline
+const inline = process.env.INLINE !== '0';
+
 export default defineConfig({
   base: './',
   assetsInclude: ['**/*.bin', '**/*.glb'],
-  plugins: [viteSingleFile(), shotSaver()],
+  plugins: [inline ? null : externaliseInlined(), inline ? viteSingleFile() : null, shotSaver()].filter(Boolean),
   build: {
     target: 'es2022',
-    assetsInlineLimit: () => true,
+    assetsInlineLimit: inline ? () => true : undefined,
     chunkSizeWarningLimit: 40000,
   },
 });
