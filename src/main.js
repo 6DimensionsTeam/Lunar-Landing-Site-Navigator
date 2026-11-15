@@ -1043,7 +1043,11 @@ async function boot() {
   };
   requestAnimationFrame(frame);
   await B.finish();
-  hud.showHome();
+  // The home screen is not shown here. In the normal start-up the mission flow takes the
+  // screen a few lines below, and showing home first meant it animated in, then began a 480 ms
+  // fade-out, all underneath the boot layer's 900 ms fade -- so the visitor briefly saw the
+  // home view's terrain as the boot screen cleared, before the arrival form replaced it.
+  // The mission block below shows home itself when it is not going to take the screen.
 
   // ---- Mount points for work in progress ----
   // One block per work package. Each package imports its own module and wires it up
@@ -1158,7 +1162,6 @@ async function boot() {
           if (import.meta.env.DEV) console.info('P2 mission ready', JSON.stringify(config));
         },
       });
-      hud.hideHome();
       hud.showScreen('mission');
       // Cache terrain only while P2's visible arrival form uses the home view as
       // a poster. P2's stage can stay stale after another screen conceals it;
@@ -1200,6 +1203,10 @@ async function boot() {
       };
       frame.last = surfaceFrame.last;
       missionFlow.ready.catch(error => console.error('Mission setup failed', error));
+    } else {
+      // No mission flow in this build (?trim), so nothing else is going to take the screen and
+      // the home view has to be shown here instead.
+      hud.showHome();
     }
   }
 
@@ -2164,9 +2171,11 @@ async function boot() {
       run = runWorlds(trialPool, zones, worlds);
       build(run);
       verdict.textContent = 'Running…';
-      // The zone map and the trial are both full-screen siblings, so the map has to go or the
-      // two draw over each other.
-      hud.hideScreen('select');
+      // The zone map is where this is reached from, so it has to go or the two draw over each
+      // other. The mission and home screens are cleared as well: their buttons can reach here
+      // by more than one route (a debug handle, a future entry point), and a screen left
+      // showing underneath this one draws its panels through the lanes.
+      for (const id of ['select', 'mission', 'home']) hud.hideScreen(id);
       hud.showScreen('worlds');
       play(run, false);
     }
