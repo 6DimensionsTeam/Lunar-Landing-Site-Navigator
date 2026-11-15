@@ -308,6 +308,15 @@ void main() {
     vec2 zuv = vec2(vMap.x / (2.0 * uZoneE) + 0.5, 0.5 - vMap.y / (2.0 * uZoneE));
     vec4 z = texture(uZones, zuv);
     float a = z.a * uZoneA;
+    // The grid's own extent is a hard square in map space (see uZoneE above), and until here
+    // the tint simply stopped there: full strength on the inside, none a texel later. Seen
+    // face-on from above that is a clean line, but this view is a grazing perspective, so the
+    // square's edge crosses the screen at an angle and the 480 m cells on top of it turn the
+    // cut into a staircase -- the same artifact src/glsl/globe.js already fixed for the whole
+    // Moon's zone cap, fixed the same way here: fade the last 8 km of the box out, on whichever
+    // axis is closer to the edge, rather than letting the boundary itself be visible at all.
+    float edgeFade = 1.0 - smoothstep(uZoneE - 8.0, uZoneE, max(abs(vMap.x), abs(vMap.y)));
+    a *= edgeFade;
     if (uZoneSel > 0) {
       // The class index is carried in the alpha the packer wrote, so compare on the colour:
       // each class has a distinct rgb, and the selected one keeps full strength.
