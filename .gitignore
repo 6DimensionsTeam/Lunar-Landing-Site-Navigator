@@ -6,3 +6,6 @@ __pycache__/
 data/preview_*.png
 dist/
 shots/
+
+# Local dev-server config for the preview tooling, not project content
+.claude/

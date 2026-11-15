@@ -89,7 +89,12 @@ body {
   inset: 0;
   z-index: 2;
   pointer-events: none;
-  font-size: clamp(12px, 0.78vw, 15px);
+  /* Root type size for the whole HUD; every panel size below is in em and scales with it.
+     The previous 0.78vw rate never reached its 12px floor on a laptop, so the floor -- not the
+     curve -- set the size everywhere below 1540px. 0.95vw reaches the 14px floor at 1474px and
+     the 17px ceiling at 1790px, so a normal laptop sits on a readable base instead of the
+     minimum. */
+  font-size: clamp(14px, 0.95vw, 17px);
 }
 
 #hud button, #hud input, #hud label { pointer-events: auto; }
@@ -836,6 +841,8 @@ body {
   pointer-events: auto;        /* #hud ignores the mouse by default; without this clicks fall through to the globe */
 }
 #sel-site-list div:first-child { border-top: 0; }
+/* The rows are buttons in behaviour, so they need a visible focus ring like every other control */
+#sel-site-list > div[role='button']:focus-visible { outline: 2px solid var(--fg); outline-offset: -2px; }
 #sel-site-list dt {
   display: flex;
   align-items: center;
@@ -1178,6 +1185,15 @@ body {
 #boot-log li { display: flex; gap: 12px; white-space: nowrap; animation: logIn 0.25s both; }
 #boot-log .ts { flex: 0 0 3.4em; color: var(--dim); }
 #boot-log .msg { overflow: hidden; text-overflow: ellipsis; color: var(--fg); }
+/* Narrow screens cannot hold the timestamp, the message and the result on one line: the message
+   was being clipped mid-word ("Decode inner terrain, LOLA 120..."). Drop the timestamp, which is
+   the least useful of the three while start-up is still running, and let the message wrap. */
+@media (max-width: 560px) {
+  #boot-log li { white-space: normal; gap: 8px; align-items: baseline; }
+  #boot-log .ts { display: none; }
+  #boot-log .msg { overflow: visible; text-overflow: clip; }
+  .boot-box { width: min(600px, 92vw); }
+}
 #boot-log .dt { margin-left: auto; color: var(--dim); }
 #boot-log .st { margin-left: auto; min-width: 3ch; text-align: right; font-weight: 700; color: var(--dim); }
 #boot-log .dt + .st { margin-left: 0; }
@@ -1213,8 +1229,194 @@ body {
 #home.in .sites-mk { animation: fade 0.8s 1.9s both; }
 #home.in .dock > * { animation: riseIn 0.9s 1.1s both var(--ease); }
 #home.in .dock > .cta-stack { animation-delay: 1.3s; }       /* both side panels appear together, the button follows */
+/* ---------- robustness trial: one hundred requirement sets ---------- */
+/* The grid is the argument: a hundred cells, each a requirement set, each holding one dot per
+   candidate site. Watching the dots go out is watching a site's claim narrow, and a site that
+   keeps its dot lit across the whole grid is the one the trial is looking for. */
+#worlds .w-ttl { top: 11vh; max-width: min(46ch, 42vw); }
+.w-stage {
+  position: absolute;
+  left: var(--pad);
+  right: var(--pad);
+  bottom: 11vh;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(240px, 24vw);
+  gap: clamp(16px, 2.5vw, 40px);
+  align-items: end;
+  pointer-events: auto;
+}
+.w-gridwrap { min-width: 0; }
+.w-cap {
+  display: flex;
+  align-items: baseline;
+  gap: 0.9em;
+  margin: 0 0 0.6em;
+  font: 600 0.82em/1.3 var(--sans);
+  letter-spacing: 0.12em;
+  color: var(--dim);
+}
+.w-cap span { color: var(--fg); font-variant-numeric: tabular-nums; }
+.w-cap em { font-style: normal; color: var(--fg2); letter-spacing: 0.06em; text-transform: none; }
+.w-grid {
+  display: grid;
+  grid-template-columns: repeat(20, 1fr);
+  gap: 3px;
+  max-width: 760px;
+}
+.w-cell {
+  position: relative;
+  aspect-ratio: 1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  align-content: center;
+  justify-items: center;
+  gap: 1px;
+  padding: 2px;
+  background: rgba(242, 244, 245, 0.04);
+  border: 1px solid rgba(242, 244, 245, 0.09);
+  opacity: 0.25;
+  transition: opacity 0.2s, background 0.25s, border-color 0.25s;
+}
+/* The cell the trial is on right now */
+.w-cell.now { opacity: 1; border-color: var(--fg); background: rgba(242, 244, 245, 0.16); }
+/* Cells already run, coloured by how the set went */
+.w-cell.done { opacity: 1; }
+.w-cell.done.all { background: rgba(242, 244, 245, 0.17); border-color: rgba(242, 244, 245, 0.4); }
+.w-cell.done.some { background: rgba(226, 32, 15, 0.14); border-color: rgba(226, 32, 15, 0.42); }
+.w-cell.done.none { background: rgba(226, 32, 15, 0.3); border-color: var(--red); }
+.w-dot {
+  width: 2px;
+  height: 2px;
+  background: rgba(242, 244, 245, 0.22);
+  transition: background 0.2s;
+}
+.w-dot.lit { background: var(--fg); }
+.w-dot.out { background: var(--red); }
+
+.w-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4em 1.1em;
+  margin: 0.7em 0 0;
+  font: 500 0.78em/1.4 var(--sans);
+  letter-spacing: 0.06em;
+  color: var(--dim);
+}
+.w-legend i { display: inline-block; width: 0.75em; height: 0.75em; margin-right: 0.4em; vertical-align: -0.05em; border: 1px solid; }
+.w-k-alive { background: rgba(242, 244, 245, 0.17); border-color: rgba(242, 244, 245, 0.4) !important; }
+.w-k-part { background: rgba(226, 32, 15, 0.14); border-color: rgba(226, 32, 15, 0.42) !important; }
+.w-k-none { background: rgba(226, 32, 15, 0.3); border-color: var(--red) !important; }
+
+.w-tally { background: rgba(5, 6, 8, 0.78); border: 1px solid var(--line); padding: 1em 1.1em 1.1em; }
+.w-tally h2 { margin: 0 0 0.7em; font: 700 0.9em/1 var(--sans); letter-spacing: 0.16em; color: var(--fg); }
+.w-bar { margin-bottom: 0.55em; font: 600 0.8em/1.3 var(--sans); }
+.w-bar-top { display: flex; align-items: baseline; gap: 0.5em; }
+.w-bar-top i {
+  font-style: normal; font-weight: 700; letter-spacing: 0.08em;
+  padding: 0.14em 0.36em 0.1em; background: var(--red); color: #fff; font-size: 0.88em;
+}
+.w-bar.found .w-bar-top i { background: transparent; border: 1px solid var(--red); color: var(--red); }
+.w-bar-top b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--fg); font-weight: 600; }
+.w-bar-top em { font-style: normal; color: var(--fg); font-variant-numeric: tabular-nums; }
+.w-bar-track { height: 3px; margin-top: 0.3em; background: rgba(242, 244, 245, 0.12); }
+.w-bar-fill { display: block; height: 100%; background: var(--fg); width: 0; transition: width 0.25s linear; }
+.w-bar.lead .w-bar-fill { background: var(--red-hi); }
+.w-bar-why { margin: 0.2em 0 0; font: 500 0.88em/1.3 var(--sans); color: var(--dim); }
+.w-note { margin: 0.8em 0 0; font: 600 0.84em/1.45 var(--sans); color: var(--fg); }
+.w-tally .credit { margin-top: 0.7em; font: 500 0.72em/1.45 var(--sans); color: var(--dim); }
+
+.w-cta { position: absolute; left: var(--pad); bottom: var(--pad); display: flex; gap: 10px; }
+
+#worlds.in > .topbar { animation: dropIn 0.6s both var(--ease); }
+#worlds.in > .w-ttl { animation: fadeUp 0.7s 0.15s both var(--ease); }
+#worlds.in > .w-stage { animation: fadeUp 0.8s 0.3s both var(--ease); }
+#worlds.in > .w-cta { animation: riseIn 0.7s 0.5s both var(--ease); }
+#worlds.out > * { animation: fade 0.3s both reverse; }
+
+@media (max-width: 1100px) {
+  .w-stage { grid-template-columns: minmax(0, 1fr); gap: 14px; bottom: 9vh; }
+  .w-tally { max-height: 28vh; overflow-y: auto; }
+  #worlds .w-ttl { max-width: 60vw; }
+}
+@media (max-width: 760px) {
+  #worlds .w-ttl .ttl-d { display: none; }
+  .w-grid { grid-template-columns: repeat(10, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .w-cell, .w-dot, .w-bar-fill { transition: none !important; }
+}
+
+/* ---------- explore: site readout down the right edge ---------- */
+/* The surface view used to carry nothing but navigation buttons, so standing at a site told you
+   nothing about it. These panels answer the questions the choice was made on, at the place the
+   choice put the camera. Right edge, because the three navigation buttons own the left. */
+.ex-dock {
+  position: absolute;
+  right: var(--pad);
+  top: calc(var(--pad) + 52px);    /* under the top bar */
+  bottom: calc(var(--pad) + 52px); /* over the bottom button row (Return to Moon / Rover Close-up) */
+  width: min(272px, 25vw);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+  z-index: 4;
+}
+.ex-dock::-webkit-scrollbar { width: 4px; }
+.ex-dock::-webkit-scrollbar-thumb { background: rgba(242, 244, 245, 0.3); }
+.ex-dock .panel { flex: 0 0 auto; }
+.ex-dock .rows dd { font-variant-numeric: tabular-nums; }
+.ex-dock .credit { margin-top: 0.5em; font: 500 0.72em/1.45 var(--sans); color: var(--dim); }
+#ex-site-h [data-pill] { margin-left: auto; padding: 0.25em 0.5em 0.2em; font: 700 0.8em/1 var(--sans); letter-spacing: 0.1em; background: var(--red); color: #fff; }
+#ex-site-h [data-pill][data-state='on'] { background: var(--fg); color: #111; }
+#ex-site-h { display: flex; align-items: center; }
+#ex-legend dt { display: flex; align-items: center; gap: 0.5em; }
+#ex-legend .swatch { display: inline-block; width: 0.85em; height: 0.85em; border: 1px solid var(--line-hi); flex: none; }
+#ex-adv-list { display: grid; gap: 0.45em; }
+.adv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 0 0.5em;
+  padding-bottom: 0.45em;
+  border-bottom: 1px solid rgba(242, 244, 245, 0.1);
+  font: 500 0.78em/1.4 var(--sans);
+}
+.adv:last-child { border-bottom: 0; padding-bottom: 0; }
+.adv i { font-style: normal; font-weight: 700; color: var(--ok); }
+.adv.no i { color: var(--red-hi); }
+.adv b { font-weight: 700; color: var(--fg); }
+.adv span { grid-column: 2; color: var(--fg2); }
+/* This used to be `display: none`, which removed every measurement on the surface screen -- site,
+   ground, live sun/Earth state, endurance, hazards, and the flight-history panel -- at the widest
+   breakpoint in the file, so a split laptop window lost them too, not just a phone. The reason it
+   was hidden is real: `width: min(272px, 25vw)` computes to 97px at 390px, too narrow to read a
+   two-column row in. So give it a layout for narrow screens instead of deleting it: full width
+   along the bottom, capped so the terrain stays visible, and scrolling inside as it already does. */
+@media (max-width: 900px) {
+  .ex-dock {
+    left: var(--pad);
+    right: var(--pad);
+    top: auto;
+    /* Clear of both button rows. Measured at 390x844: #torover spans y=680.6-714 and #tositemap
+       y=750.2-780.8, so the panel has to stop above 680, not above 714 -- an earlier value of
+       84px left the panel overlapping #torover by 33px. */
+    bottom: calc(var(--pad) + 152px);
+    width: auto;
+    max-height: 42vh;
+  }
+  /* Two columns of rows read better than one long column when the panel is wide and short. */
+  .ex-dock .rows { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 1.2em; }
+}
+@media (max-width: 420px) {
+  /* Back to one column: at this width two columns leave no room for the value beside the label. */
+  .ex-dock .rows { grid-template-columns: minmax(0, 1fr); }
+}
+
 #explore.in > * { animation: fadeUp 0.7s 0.1s both var(--ease); }
 #explore.in > .hint { animation: fade 0.8s 0.4s both; }
+#explore.in > .ex-dock { animation: dropIn 0.75s 0.3s both var(--ease); }
 #orbit.in::before { animation: fade 1.2s both; }
 #orbit.in .topbar { animation: dropIn 0.8s 0.1s both var(--ease); }
 #orbit.in .ttl { animation: wipeR 0.7s 0.3s both cubic-bezier(0.6, 0, 0.2, 1); }
@@ -1285,9 +1487,27 @@ body {
   .sub { letter-spacing: 0.3em; padding-left: 0.3em; line-height: 1.5; }
   .desc { width: auto; }
   .loc span, .clock .id, .clock .mt, #explore .clock { display: none; }
-  .dock { grid-template-columns: 1fr; grid-template-areas: 'live' 'cta'; gap: 1.4em; }
-  .live { justify-self: stretch; width: auto; }
-  .cta-stack, .cta { justify-self: stretch; }
+  /* Base template only names 'live' and 'cta'. A dock with a third child in grid-area 'sites'
+     (.legend on #select, .analysis-panel on #analysis) has no slot for it: that name resolves to
+     an implicit track outside the explicit grid, which is how the candidate list ended up at
+     x=-168 and the legend panel landed below the viewport, both measured at 390x844. Naming all
+     three areas gives every panel a real row and stacks them in reading order: the decision
+     (sites/live) above the actions (cta). */
+  .dock { grid-template-columns: 1fr; grid-template-areas: 'sites' 'live' 'cta'; gap: 1em; }
+  /* Every dock child, not just the ones in the base template. A single child left at its fixed
+     `width: var(--dock-w)` (441px at this font size) sizes the shared 1fr column to 441px and
+     pushes the whole stack past both viewport edges -- measured on #analysis, where .analysis-ai
+     was the one still holding its fixed width. */
+  .sites, .legend, .analysis-panel, .analysis-ai, .params, .tele,
+  .live, .cta-stack, .cta { justify-self: stretch; width: auto; }
+  /* The unconditional `max-height: calc(100vh - 46vh)` on #select/#analysis .dock assumed two
+     panels sharing one row; stacked three-high it leaves no room and pushes .cta-stack past the
+     viewport bottom (measured: cta at y=845 in an 844px-tall viewport). Lift the cap here and let
+     the candidate/requirement list do the scrolling instead, which it already supports
+     (#sel-site-list, #an-reqs overflow-y: auto). */
+  #select .dock, #analysis .dock { max-height: none; }
+  #select .legend, #select .live,
+  #analysis .analysis-panel, #analysis .analysis-ai { max-height: 38vh; }
   .ttl { top: calc(var(--pad) + 52px); }
   #orbit .clock, #orbit .tag:not([data-tag='ring']) .lbl, #orbit .tag:not([data-tag='ring']) .lead, .tag[data-tag='ring'] .lbl > span { display: none; }
   .tag[data-tag='crater'] .lbl > span, .site span, .frame::before, .frame::after { display: none; }

@@ -131,5 +131,8 @@ export function createTracks(renderer, size = TRACK.size) {
     renderer.autoClear = ac;
   }
 
-  return { follow, stamp, center, get texture() { return rt.texture; }, size };
+  // Wipe every stamped track. Used when the rover is set down at another site: the wheel marks
+  // belong to the ground it left.
+  const reset = () => { clear(rt); clear(rt2); };
+  return { follow, stamp, center, reset, get texture() { return rt.texture; }, size };
 }

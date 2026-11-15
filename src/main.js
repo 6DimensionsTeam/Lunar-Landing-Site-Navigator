@@ -16,6 +16,7 @@ import { createRover, SPEED_LIMITS } from './scene/rover.js';
 import { createZones } from './zones.js';
 import { createGlobe } from './scene/globe.js';
 import { rankSites, statsFor, explain, candidatePool } from './rank.js';
+import { buildWorlds, runWorlds, summarise as worldsSummarise } from './worlds.js';
 
 // Home-screen epoch: 2028-09-29 12:00 UTC. Seen from Shackleton, Earth (a 15%-lit crescent) and the Sun both stand only 1.7–3° above the horizon,
 // about 45° apart in azimuth, straddling the south polar ridge. The clock then runs forward at real speed.
@@ -57,6 +58,8 @@ function measureCrater(heightAt, approx) {
   const rimH = rimSum / n;
   return { center: c, floorH: floor, rimH, radius: rSum / n, depth: rimH - floor };
 }
+
+let worldsOpen = null, worldsClose = null, worldsIsOpen = null;
 
 async function boot() {
   const B = hud.boot;
@@ -242,8 +245,8 @@ async function boot() {
   // Rover: rim of site A, drawn on top of the main scene in close-up (likewise after clearing depth)
   await B.run('Polar rover: URDF joint tree + near terrain', async () => {
     rover = await createRover(renderer, data.roverUrl, {
-      R, terrain, tiles: data.tiles, shadows, eph, anchor: sites.byId('A').map, crater,
-      heightAt, mapToScene, sceneToMap, upAt,
+      R, terrain, tiles: data.tiles, shadows, eph, anchor: sites.byId('A').map.clone(), crater,
+      heightAt, mapToScene, sceneToMap, upAt, latLonToMap,
     });
     post.composer.insertPass(rover.pass, 2);
     rover.sync(camera);
@@ -324,6 +327,22 @@ async function boot() {
 
   // Ground track: in the south polar stereographic projection a polar orbit is a straight line through the pole along the subsatellite meridian
   const TRACK = { home: 0, explore: 0, orbit: 1, rover: 0 };
+  // Zone tint on the drawn terrain. The shader has carried this since the zone map was built
+  // (see uZoneA in glsl/terrain.js) but nothing ever supplied the texture, so the surface was
+  // always bare grey while the globe screen was coloured from the same data.
+  const ZONEA = { home: 0.28, explore: 0.42, orbit: 0.34, rover: 0 };
+  // ...and faded by how much of the classification the view can actually resolve. A zone cell is
+  // 480 m. Standing close, three cells span the frame and a tint is a flat wash over ground the
+  // screen exists to show, while the legend beside it still promises four classes -- accurate
+  // data, useless picture. So the tint earns its strength only once enough cells are in frame to
+  // read as a classification: nothing below CELLS_OFF across, full value above CELLS_FULL. This
+  // is why the rover close-up needed no special case; it is simply always below the floor.
+  const CELLS_OFF = 8, CELLS_FULL = 26;
+  const zoneFade = () => {
+    const d = camera.position.distanceTo(controls.target);
+    const across = (2 * d * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2)) / (data.zonesMeta.cell_m / 1000);
+    return THREE.MathUtils.smoothstep(across, CELLS_OFF, CELLS_FULL);
+  };
   {
     const nad = sceneToMap(R, station.place.pos).m.clone();
     terrain.uniforms.uNadir.value.copy(nad);
@@ -353,6 +372,126 @@ async function boot() {
     hud.set({ sun: v.sun, earth: v.earth, next });
   }
 
+  // Set by the P1 block when a site is committed on the map; read here so the default-entry
+  // path can tell whether a real choice has already been made.
+  let chosenSiteRef = () => null;
+  // Where the surface view stands. The committed site if there is one, otherwise Site A, which is
+  // where rig.landing() puts the camera when it is given no position. The camera, the readout,
+  // the rover and the button label all read this one answer; they used to decide separately, so
+  // after committing to one site the Descend button flew to A while the panels described B.
+  const surfaceTarget = () => chosenSiteRef()?.site || sites.byId('A');
+  let roverAtId = 'A';
+  const placeRover = (site, force) => {
+    if (!force && roverAtId === site.id) return;   // already parked there: keep its odometer and tracks
+    rover.moveTo(sites.byId(site.id) || site);
+    roverAtId = site.id;
+  };
+  const syncDescend = () => hud.bind('desc-label', `Descend to Site ${surfaceTarget()?.id ?? 'A'}`);
+  // The same evaluation the map's list rows carry, so a default entry shows a verdict computed
+  // the same way rather than a second opinion.
+  const defaultEntryFor = (site) => rankSites([site], zones, null, {})[0];
+
+  // ---- Surface site readout: whatever site the camera is standing at ----
+  // Set when a site is committed on the zone map (descendTo), refreshed on the 400 ms timer while
+  // the free camera is up. Every figure is a measurement: the live sun/Earth state is the same
+  // horizon-profile test the home screen runs for Shackleton, the percentages and the longest
+  // night/blackout are the site's own full-resolution figures, and the fault distance is the
+  // nearest mapped scarp. Nothing is shown for a field the data does not carry.
+  const surfaceHud = (() => {
+    let cur = null, next = { h: null }, lastLit = null;
+    const pct = (v) => (Number.isFinite(v) ? `${v.toFixed(1)}%` : '—');
+    const hrs = (v) => (Number.isFinite(v) ? `${v} h · ${(v / 24).toFixed(1)} d` : 'no data');
+    const span = (h) => (h >= 48 ? `${(h / 24).toFixed(1)} days` : `${h.toFixed(1)} h`);
+    // Nearest mapped scarp, by the same planar south-polar projection the scarp file is in. Data
+    // sites carry a precomputed fault_km; the published regions do not, so it is measured here.
+    function faultKm(site) {
+      if (Number.isFinite(site.fault_km)) return { km: site.fault_km, id: null };
+      const sc = data.quakes?.scarps || [];
+      const p = latLonToMap(R, site.lat, site.lon);
+      let best = null;
+      for (const f of sc) {
+        const a = latLonToMap(R, f.start[0], f.start[1]), b = latLonToMap(R, f.end[0], f.end[1]);
+        const dx = b.x - a.x, dy = b.y - a.y, L = dx * dx + dy * dy;
+        const t = L ? THREE.MathUtils.clamp(((p.x - a.x) * dx + (p.y - a.y) * dy) / L, 0, 1) : 0;
+        const d = Math.hypot(p.x - a.x - t * dx, p.y - a.y - t * dy);
+        if (!best || d < best.km) best = { km: d, id: f.id };
+      }
+      return best;
+    }
+    function set(sel) {
+      const s = sites.byId(sel.site.id) || sel.site;
+      cur = s; lastLit = null; next = { h: null };
+      const st = sel.entry?.stats || s.stats || {}, g = sel.entry?.ground;
+      const src = s.source === 'nasa' ? 'NASA ARTEMIS CANDIDATE REGION' : s.source === 'surveyed' ? 'SURVEYED · BELOW THE BAR' : 'DATA-SELECTED · OUR GRID SCAN';
+      hud.bind('ex-name', s.en.replace(/\b\w+/g, (w) => w[0] + w.slice(1).toLowerCase()));
+      hud.bind('ex-sub', `LANDING SITE ${s.id}`);
+      hud.bind('ex-id', `${s.id} · ${s.source === 'nasa' ? 'NASA' : 'DATA'}`);
+      hud.bind('ex-ll', `${Math.abs(s.lat).toFixed(3)}° S · ${(((s.lon % 360) + 360) % 360).toFixed(2)}° E`);
+      hud.bind('ex-elev', Number.isFinite(s.elev_m) ? `${Math.round(s.elev_m).toLocaleString('en-US')} m` : '—');
+      hud.bind('ex-ground', g ? g.zone.toUpperCase() : 'unmapped');
+      hud.bind('ex-slope', g && Number.isFinite(g.slopeDeg) ? `${g.slopeDeg.toFixed(1)}°` : (Number.isFinite(s.slope_deg) ? `${s.slope_deg.toFixed(1)}°` : '—'));
+      // Two different aggregations, named separately. The visibility percentages are means over
+      // the period; the longest night and longest blackout are the worst continuous run in it.
+      // They were both labelled "annual means", which made the endurance figures read as typical
+      // when they are the worst case the mission has to survive -- and for a site whose dark
+      // spell crosses a year boundary the whole-period run is longer than any single year's,
+      // so the two cannot share a label even in principle.
+      hud.bind('ex-src', `${src}. Percentages are means over ${sel.year ? sel.year : `${eph.startYear}–${eph.endYear}`}; `
+        + `longest night and blackout are the worst continuous run in ${eph.startYear}–${eph.endYear}. LOLA horizon × DE421.`);
+      hud.pill('ex-verdict', !!sel.entry?.meetsAll, sel.entry ? (sel.entry.meetsAll ? 'MEETS' : 'FAILS') : '—');
+      hud.bind('ex-sunpct', pct(st.sun_visible_pct));
+      hud.bind('ex-earthpct', pct(st.earth_visible_pct));
+      hud.bind('ex-both', pct(st.both_pct));
+      // Endurance figures are the whole-period worst case, the same figure the pool is screened on
+      const whole = s.stats || st;
+      hud.bind('ex-dark', `${hrs(whole.longest_dark_h)} worst`);
+      hud.bind('ex-blind', `${hrs(whole.longest_blind_h)} worst`);
+      hud.bind('ex-ice', g && Number.isFinite(g.iceDistKm) ? (g.iceLikely ? 'on site' : `${g.iceDistKm.toFixed(1)} km`) : '—');
+      const f = faultKm(s);
+      hud.bind('ex-fault', f ? `${f.km.toFixed(1)} km${f.id ? ` · scarp ${f.id}` : ''}` : 'no catalogue data');
+      // How high anything has to stand to clear this site's own terrain, and how much of the
+      // compass is already clear at the local horizontal. Read straight off the measured horizon
+      // profile, so no orbit, no spacecraft and no time axis enter it -- which is exactly why it
+      // can be shown at all. A relay coverage percentage would depend on the orbital plane's
+      // orientation, and this project never defines that (see README on the assumed orbit), so
+      // any such figure would be a choice of unstated parameters dressed as a measurement.
+      const prof = s.horizon_cdeg ? s.horizon_cdeg.map((v) => v / 100) : null;
+      if (prof && prof.length) {
+        const worst = Math.max(...prof);
+        const openAt = (mask) => (prof.filter((v) => v < mask).length / prof.length) * 100;
+        hud.bind('ex-clear', worst >= 0
+          ? `${worst >= 0 ? '+' : ''}${worst.toFixed(2)}° at worst azimuth`
+          : 'below horizontal all round');
+        hud.bind('ex-open', `${openAt(0).toFixed(1)}% at 0° · ${openAt(2).toFixed(0)}% at 2°`);
+        hud.bind('ex-clear-src',
+          'Terrain only, from the LOLA horizon profile at 0.5° steps, 2 m antenna height. '
+          + 'No relay orbit is modelled, so this is not a coverage or availability figure: it is '
+          + 'how much sky this ground leaves open, not how often anything is in it.');
+      } else {
+        hud.bind('ex-clear', 'no profile');
+        hud.bind('ex-open', '—');
+        hud.bind('ex-clear-src', 'No horizon profile for this point.');
+      }
+      refresh(nowH());
+    }
+    function refresh(h) {
+      if (!cur || !cur.hor) return;
+      const v = sites.look(cur, h);
+      const sign = (x) => `${x >= 0 ? '+' : '−'}${Math.abs(x).toFixed(2)}°`;
+      hud.bind('ex-sun', sign(v.sun.el));
+      hud.pill('exsun', v.sun.lit, v.sun.lit ? 'SUNLIT' : 'DARK');
+      hud.bind('ex-earth', sign(v.earth.el));
+      hud.pill('exearth', v.earth.visible, v.earth.visible ? 'LINK' : 'BLOCKED');
+      if (v.sun.lit !== lastLit || (next.h != null && h > next.h)) {
+        lastLit = v.sun.lit;
+        next = { h: sites.nextChange(cur, h, 'sun') };
+      }
+      hud.bind('ex-next', next.h == null ? 'none within 250 days'
+        : `${v.sun.lit ? 'sunset' : 'sunrise'} in ${span(next.h - h)}`);
+    }
+    return { set, refresh, get site() { return cur; } };
+  })();
+
   // ---- Mode switching: home ⇄ explore, home ⇄ orbit, orbit → explore (landing) ----
   // The two free-look views use different OrbitControls limits: crater rim in kilometres, relay station in hundreds of metres
   const CTRL = {
@@ -360,7 +499,12 @@ async function boot() {
     orbit: { minDistance: 0.06, maxDistance: 1.2, minPolarAngle: THREE.MathUtils.degToRad(15), maxPolarAngle: THREE.MathUtils.degToRad(150), autoRotate: true, autoRotateSpeed: 0.25 },
   };
   let from = 'home', to = 'home';
-  const poseOf = (m) => (m === 'explore' ? rig.landing(aspect()) : m === 'orbit' ? rig.orbit(aspect(), station.place) : rig.home(aspect()));
+  const landingPose = () => {
+    const t = surfaceTarget();
+    if (!t || t.id === 'A') return rig.landing(aspect());   // Site A keeps its crater-rim framing
+    return rig.landing(aspect(), latLonToMap(R, t.lat, t.lon));
+  };
+  const poseOf = (m) => (m === 'explore' ? landingPose() : m === 'orbit' ? rig.orbit(aspect(), station.place) : rig.home(aspect()));
   function go(target) {
     if (mode === 'fly' || mode === target || mode === 'rover') return;
     // Whoever called this is taking the screen, so the descent's own loop steps aside and the
@@ -566,6 +710,7 @@ async function boot() {
     // frame, so it is off by default and can be switched on with the ?orbit URL flag
     if (relayOrbit) relayOrbit.visible = stVis && orbitFlag;
     terrain.uniforms.uTrack.value = THREE.MathUtils.lerp(TRACK[mode === 'fly' ? from : mode], TRACK[mode === 'fly' ? to : mode], s);
+    terrain.uniforms.uZoneA.value = THREE.MathUtils.lerp(ZONEA[mode === 'fly' ? from : mode], ZONEA[mode === 'fly' ? to : mode], s) * zoneFade();
     terrain.uniforms.uKeyFloor.value = THREE.MathUtils.lerp(KEYF[mode === 'fly' ? from : mode], KEYF[mode === 'fly' ? to : mode], s);
     post.grade.uniforms.uExposure.value = THREE.MathUtils.lerp(EXP[mode === 'fly' ? from : mode], EXP[mode === 'fly' ? to : mode], s);
     post.bloom.threshold = THREE.MathUtils.lerp(BLOOM[mode === 'fly' ? from : mode], BLOOM[mode === 'fly' ? to : mode], s);
@@ -583,17 +728,40 @@ async function boot() {
     if (mode === 'fly' && flight && u >= 1) flight.done();
   }
 
+  // Frame budget. A surface frame draws three shadow maps, the terrain and a bloom chain, and on
+  // a 120 Hz display the loop was running all of it twice as often as a 60 Hz one for no visual
+  // gain -- the Sun moves half a degree an hour, so nothing on screen changes between two
+  // consecutive frames at that rate. Capping the work keeps the GPU out of its fan curve, which
+  // is what made the view feel worse the longer it was open.
   function frame(t) {
     if (globeShown) { surfaceStopped = true; return; }   // stopped, not skipped: no further rAF is queued until resumeFrame()
     surfaceStopped = false;
-    surfaceStep(t);
+    // Always re-arm first: skipping a draw must never drop the chain.
     requestAnimationFrame(frame);
+    // The budget state lives on the function, like surfaceStep.last, so this stays self-contained.
+    const budget = 1000 / 60 - 1;
+    // A flight is the one case worth every frame the display offers: the camera is moving fast
+    // enough for the difference to show. Otherwise 60 Hz is the cap -- the Sun moves half a
+    // degree an hour, so two consecutive frames on a 120 Hz display are the same picture drawn
+    // twice, with three shadow maps and a bloom chain behind each one.
+    if (mode !== 'fly' && t - (frame.lastDrawn || 0) < budget) return;
+    frame.lastDrawn = t;
+    surfaceStep(t);
   }
 
   // Low-frequency tasks: site state, site occlusion
   setInterval(() => {
     refreshLive(nowH());
     if (mode === 'orbit') refreshOrbit();
+    if (mode === 'explore') {
+      surfaceHud.refresh(nowH());
+      // Say which of the two states the picture is in, rather than leaving a legend of four
+      // classes beside ground that is showing none of them.
+      const lit = zoneFade() > 0.05;
+      hud.bind('ex-zone-note', lit
+        ? `LOLA slope with Diviner temperature, ${data.zonesMeta.cell_m} m cells: area characteristics, not a per-metre map.`
+        : `Tint off at this range: one ${data.zonesMeta.cell_m} m cell is wider than the view, so a colour here would cover the terrain rather than classify it. Zoom out to bring the classes back.`);
+    }
     if (mode === 'home') for (const s of sites.sites) blocked[s.id] = occluded(camera.position, s.scene);
   }, 400);
 
@@ -602,11 +770,26 @@ async function boot() {
   // makes going "home" a dead end -- the mission flow skips that screen entirely, so it would
   // leave them on a screen with nothing to click that continues the mission.
   const backFromSurface = () => { if (cameFromMap) returnToMap(); else go('home'); };
-  hud.onEnter(() => go('explore'));
+  // Entering the surface outside the map flow (Enter Navigation, Descend to Site A) still lands
+  // at Shackleton Rim, because that is where rig.landing() puts the camera with no site given.
+  // Without this the readout sat on placeholder dashes and the header named a site the view was
+  // not at: the panels describe wherever the camera actually stands, so they are filled for the
+  // default landing site too, not only for a site committed on the map.
+  const enterSurface = () => {
+    const t = surfaceTarget();
+    if (t) {
+      // A committed site already filled the panels in descendTo; the default needs filling here.
+      if (!chosenSiteRef()) surfaceHud.set({ site: t, entry: defaultEntryFor(t), year: null, needs: {} });
+      placeRover(t);
+    }
+    go('explore');
+  };
+  hud.onEnter(enterSurface);
   hud.onBack(backFromSurface);
   hud.onOrbit(() => { refreshOrbit(); go('orbit'); });
   hud.onOrbitBack(() => go('home'));
-  hud.onDescend(() => go('explore'));
+  hud.onDescend(enterSurface);
+  syncDescend();
   hud.onRover(() => enterRover());
   hud.onRoverBack(() => leaveRover());
   hud.onLights(() => rover.toggleLights());
@@ -643,6 +826,9 @@ async function boot() {
     }
     // The globe owns the frame while it is up, so it takes Escape before the surface modes
     // get a look at it -- otherwise Escape there would fly a camera nobody can see.
+    // The trial sits on top of the zone map, so it takes Escape before the map does -- otherwise
+    // Escape would leave the map with the trial still drawn over it.
+    if (e.key === 'Escape' && worldsIsOpen && worldsIsOpen()) { worldsClose(); hud.showScreen('select'); return; }
     if (e.key === 'Escape' && globeShown) { leaveGlobe(); return; }
     // #analysis sits on top of the surface view, so without its own branch Escape falls into
     // the explore one, which hides the explore screen and returns to the map -- leaving the
@@ -723,6 +909,15 @@ async function boot() {
   for (const s of sites.sites) blocked[s.id] = occluded(camera.position, s.scene);
   clock.t0 = performance.now();
   refreshLive(nowH());
+  // P0, landing zones. Built before the first frame because the terrain shader tints the ground
+  // from this texture: starting the loop first would sample an unset sampler for a few frames.
+  // P1 and P3 both read it -- P1 colours the surface and shows zones.at() on hover, P3 scores a
+  // site with the same values. A cell is 480 m, so these are area characteristics; precise
+  // per-site figures stay in sites.json.
+  const zones = createZones(data.zones, data.zonesMeta);
+  terrain.uniforms.uZones.value = zones.texture();
+  terrain.uniforms.uZoneE.value = zones.halfExtentKm;
+
   // Re-arms the surface loop, and only if it genuinely stopped. Called on the way back from
   // the globe, which may be entered and left repeatedly.
   const resumeFrame = () => {
@@ -734,12 +929,6 @@ async function boot() {
   requestAnimationFrame(frame);
   await B.finish();
   hud.showHome();
-
-  // P0, landing zones. Built here because P1 and P3 both read it: P1 colours the
-  // surface with zones.texture() and shows zones.at() on hover, P3 scores a site with
-  // the same values. A cell is 480 m, so these are area characteristics; precise
-  // per-site figures stay in sites.json.
-  const zones = createZones(data.zones, data.zonesMeta);
 
   // ---- Mount points for work in progress ----
   // One block per work package. Each package imports its own module and wires it up
@@ -991,6 +1180,19 @@ async function boot() {
       legendHost.appendChild(row);
     }
 
+    // The same legend on the surface screen, where the tint is now drawn on the ground itself.
+    // Built from zones.style like the one above, so the two screens cannot drift apart.
+    const exLegend = document.getElementById('ex-legend');
+    if (exLegend && !exLegend.children.length) {
+      for (const [key, st] of Object.entries(zones.style)) {
+        if (key === 'rough') continue;
+        const row = document.createElement('div');
+        const [r, g, b] = st.rgba;
+        row.innerHTML = `<dt><i class="swatch" style="background:rgb(${r},${g},${b})"></i>${st.name}</dt><dd>${data.zonesMeta.share_pct[key].toFixed(1)}%</dd>`;
+        exLegend.appendChild(row);
+      }
+    }
+
     // Candidate-site list, mirroring the home screen's table: id chip, name, the figures a
     // selector actually needs (sun, Earth link, longest dark spell), from the full-resolution
     // horizon profile in sites.json rather than the 480 m zone grid (see zones.js's own note
@@ -1016,8 +1218,8 @@ async function boot() {
       // averages that entire year, not the arrival window inside it. Nothing here is computed
       // over a transfer or surface window, so neither label may imply one.
       siteListYear.textContent = year != null
-        ? ` ${year} ANNUAL`
-        : ` ${eph.startYear}–${eph.endYear} MEAN`;
+        ? ` ${year} MEANS · WORST NIGHT ${eph.startYear}–${eph.endYear}`
+        : ` ${eph.startYear}–${eph.endYear} MEANS · WORST NIGHT`;
       // The requirements P2 collected are what make this a ranking rather than a table: the
       // list is ordered by how well each site meets the mission as configured, and a site that
       // fails one is moved below every site that does.
@@ -1047,10 +1249,33 @@ async function boot() {
         // One click frames the site on the map, a second commits to it and goes down to the
         // surface. Going straight down on the first click would take the map away before the
         // user had seen the site in its surroundings, which is what the map is for.
-        row.addEventListener('click', () => {
+        // Choosing a site is the one real decision in this product, and it was reachable only
+        // with a mouse: these rows were plain divs with a click listener, so a keyboard could
+        // reach the screen, fly the camera and leave again without ever being able to choose.
+        // They are buttons now in everything but tag name -- focusable, announced, and driven by
+        // Enter or Space, with the same two-step behaviour the pointer gets.
+        const choose = () => {
           if (framedSite === s.id && !globe.flying) descendTo(s, entry);
           else { framedSite = s.id; globe.flyToSite(s); }
-          for (const r of siteListHost.children) r.classList.toggle('sel', r === row);
+          for (const r of siteListHost.children) {
+            const on = r === row;
+            r.classList.toggle('sel', on);
+            if (r.hasAttribute('aria-pressed')) r.setAttribute('aria-pressed', String(on));
+          }
+        };
+        row.addEventListener('click', choose);
+        row.tabIndex = 0;
+        row.setAttribute('role', 'button');
+        row.setAttribute('aria-pressed', 'false');
+        // Said out loud, because the two-step gesture is not discoverable: the first press
+        // frames the site, the second commits to it.
+        row.setAttribute('aria-label', `${s.en}, site ${s.id}. ${entry.meetsAll ? 'Meets the mission' : 'Does not meet the mission'}. `
+          + `Press once to look at it, twice to land.`);
+        row.addEventListener('keydown', (ev) => {
+          if (ev.key !== 'Enter' && ev.key !== ' ' && ev.key !== 'Spacebar') return;
+          ev.preventDefault();      // Space would otherwise scroll the panel
+          ev.stopPropagation();     // and the surface keymap must not see it as a drive command
+          choose();
         });
         row.style.cursor = 'pointer';
         siteListHost.appendChild(row);
@@ -1121,6 +1346,9 @@ async function boot() {
 
     document.getElementById('sel-pole').addEventListener('click', () => globe.flyToPole());
     document.getElementById('sel-overview').addEventListener('click', () => globe.flyToOverview());
+    // The trial reads the same pool this screen ranks, so it is reachable from here rather than
+    // being a separate entry point with its own idea of what the candidates are.
+    document.getElementById('sel-trial').addEventListener('click', () => { if (worldsOpen) worldsOpen(); });
 
     // The globe is a second pass with the same renderer, so it owns the frame while it is up:
     // the surface scene's own loop is left running but its output is overwritten here.
@@ -1285,6 +1513,11 @@ async function boot() {
       // without P1 having to know who is listening.
       chosenSite = { site, entry, year: lastYear, needs: missionNeeds };
       mission.publishSite(chosenSite);
+      surfaceHud.set(chosenSite);
+      chosenSiteRef = () => chosenSite;
+      // The rover belongs at the site the user committed to, not permanently at point A.
+      placeRover(site, true);
+      syncDescend();
       const m = latLonToMap(R, site.lat, site.lon);
       hide();
       hud.hideScreen('select');
@@ -1417,14 +1650,22 @@ async function boot() {
       current = sel;
       const { site, entry, year, needs } = sel;
       an('an-site').textContent = site.en;
-      an('an-verdict').textContent = entry.meetsAll ? 'Suitable as configured' : 'Does not meet the mission';
+      // "Suitable as configured" was written unconditionally, which claimed a verdict against a
+      // mission even when no requirement had been set -- and it overrode explain(), four lines
+      // below, which already words that case correctly. The headline now follows whether
+      // anything was actually asked of the site.
+      const asked = entry.verdicts.length > 0;
+      an('an-verdict').textContent = !asked ? 'Ranked on measured conditions'
+        : entry.meetsAll ? 'Suitable as configured' : 'Does not meet the mission';
       an('an-year').textContent = year != null
-        ? `${year} ANNUAL MEANS · ${site.lat.toFixed(2)}° S · ${site.lon.toFixed(2)}° E`
+        ? `${year} MEANS, WORST-CASE NIGHT · ${site.lat.toFixed(2)}° S · ${site.lon.toFixed(2)}° E`
         : `${site.lat.toFixed(2)}° S · ${site.lon.toFixed(2)}° E`;
 
       const reqs = an('an-reqs');
       reqs.textContent = '';
-      const rows = entry.verdicts.length ? entry.verdicts : [{ label: 'No requirements set', pass: true, value: '' }];
+      // Reachable again now that verdicts are only produced for requirements that were set.
+      const rows = entry.verdicts.length ? entry.verdicts
+        : [{ label: 'No requirements set', pass: true, value: 'measured conditions only' }];
       for (const v of rows) {
         const row = document.createElement('div');
         row.innerHTML = '<dt></dt><dd><span class="val"></span><em></em></dd>';
@@ -1441,7 +1682,10 @@ async function boot() {
       an('an-credit').textContent =
         `${st.sun_visible_pct.toFixed(1)}% sunlight · ${st.earth_visible_pct.toFixed(1)}% Earth link · `
         + `${st.both_pct.toFixed(1)}% both · longest dark ${st.longest_dark_h} h. `
-        + 'Whole-calendar-year means from LOLA horizon profiles and DE421, not a surface-window calculation.';
+        + 'Percentages are whole-calendar-year means from LOLA horizon profiles and DE421. The '
+        + 'longest night is not a mean: it is the worst continuous dark run measured across the '
+        + 'whole record, which is the figure a lander has to survive, and it can exceed any one '
+        + 'year when a spell crosses a year boundary. Neither is a surface-window calculation.';
     }
 
     const isOpen = () => !an('analysis').hidden;
@@ -1604,6 +1848,128 @@ async function boot() {
     // Close when its clock's screen goes away
     setInterval(() => { if (!pop.hidden && !anchor.offsetParent) close(); }, 300);
     sync();
+  }
+
+  // ---- Robustness trial: the same ground against a hundred requirement sets ----
+  // Why this screen exists: a single ranking names the best site for one stated mission, which
+  // is not the question a planner has. Requirements move -- a launch slips a year, a relay is
+  // not approved, an endurance budget is cut -- and a site that wins narrowly under one set and
+  // fails under the next is the worse choice. So every set is run and survival is counted. See
+  // src/worlds.js for exactly what a "requirement set" is and what this deliberately does not
+  // claim (no probabilities, no engineering models).
+  {
+    // The same pool the selector ranks. Rebuilt here rather than reaching into the select
+    // screen's scope: candidatePool is pure, so both reads cannot disagree.
+    const trialPool = candidatePool(data);
+    const grid = document.getElementById('w-grid');
+    const bars = document.getElementById('w-bars');
+    const prog = document.getElementById('w-prog');
+    const label = document.getElementById('w-label');
+    const verdict = document.getElementById('w-verdict');
+    let run = null, token = 0, cells = [], barRows = new Map();
+
+    function build(result) {
+      grid.textContent = '';
+      cells = result.timeline.map(() => {
+        const cell = document.createElement('div');
+        cell.className = 'w-cell';
+        // One dot per site, in the pool's own order, so a reader can follow a single site
+        // across the whole grid by position.
+        const dots = result.sites.map(() => {
+          const d = document.createElement('i');
+          d.className = 'w-dot';
+          cell.appendChild(d);
+          return d;
+        });
+        grid.appendChild(cell);
+        return { cell, dots };
+      });
+      // Bars keep the pool order too, and are re-sorted only at the end: watching rows leapfrog
+      // mid-run would hide which site is actually gaining.
+      bars.textContent = '';
+      barRows = new Map();
+      for (const s of result.sites) {
+        const row = document.createElement('div');
+        row.className = 'w-bar' + (s.site.source === 'data' ? ' found' : '');
+        row.innerHTML = '<div class="w-bar-top"><i></i><b></b><em>0</em></div>'
+          + '<span class="w-bar-track"><span class="w-bar-fill"></span></span>'
+          + '<p class="w-bar-why"></p>';
+        row.querySelector('i').textContent = s.site.id;
+        row.querySelector('b').textContent = s.site.en;
+        bars.appendChild(row);
+        barRows.set(s.site.id, {
+          row, count: row.querySelector('em'),
+          fill: row.querySelector('.w-bar-fill'), why: row.querySelector('.w-bar-why'), n: 0,
+        });
+      }
+    }
+
+    // Replay the trial one set at a time. The pacing is the point: fast enough to watch a
+    // hundred sets without waiting, slow enough that an elimination is legible.
+    async function play(result, instant) {
+      const me = ++token;
+      const total = result.timeline.length;
+      for (const b of barRows.values()) { b.n = 0; b.count.textContent = '0'; b.fill.style.width = '0'; b.why.textContent = ''; }
+      const order = result.sites.map((s) => s.site.id);
+      for (let i = 0; i < total; i++) {
+        if (me !== token) return;                 // a replay or a skip superseded this run
+        const step = result.timeline[i];
+        const c = cells[i];
+        const deadIds = new Set(step.dead.map((d) => d.id));
+        c.cell.classList.add('now');
+        order.forEach((id, k) => c.dots[k].classList.add(deadIds.has(id) ? 'out' : 'lit'));
+        for (const id of order) {
+          if (deadIds.has(id)) continue;
+          const b = barRows.get(id);
+          b.n += 1;
+          b.count.textContent = String(b.n);
+          b.fill.style.width = `${(b.n / total) * 100}%`;
+        }
+        prog.textContent = `${i + 1} / ${total}`;
+        label.textContent = step.world.label;
+        if (!instant) await new Promise((r) => setTimeout(r, reducedMotion.matches ? 0 : 26));
+        if (me !== token) return;
+        c.cell.classList.remove('now');
+        c.cell.classList.add('done', deadIds.size === 0 ? 'all' : deadIds.size >= order.length ? 'none' : 'some');
+      }
+      if (me !== token) return;
+      // Only now reorder, and say why each site fell short.
+      const ranked = [...result.sites];
+      for (const s of ranked) {
+        const b = barRows.get(s.site.id);
+        if (!b) continue;
+        b.why.textContent = s.survived === result.worlds.length
+          ? 'met every requirement in every set'
+          : s.weakness ? `most often ruled out on: ${s.weakness.toLowerCase()}` : '';
+        bars.appendChild(b.row);
+      }
+      barRows.get(ranked[0].site.id)?.row.classList.add('lead');
+      verdict.textContent = worldsSummarise(result);
+      label.textContent = '';
+    }
+
+    function open() {
+      // Built against the mission's own arrival year span and the live pool, so the trial always
+      // reflects the data on screen rather than a cached run.
+      const worlds = buildWorlds({ startYear: eph.startYear, endYear: eph.endYear, count: 100 });
+      run = runWorlds(trialPool, zones, worlds);
+      build(run);
+      verdict.textContent = 'Running…';
+      // The zone map and the trial are both full-screen siblings, so the map has to go or the
+      // two draw over each other.
+      hud.hideScreen('select');
+      hud.showScreen('worlds');
+      play(run, false);
+    }
+    function close() { token++; hud.hideScreen('worlds'); }
+
+    document.getElementById('w-back').addEventListener('click', () => { close(); hud.showScreen('select'); });
+    document.getElementById('w-replay').addEventListener('click', () => { if (run) { build(run); play(run, false); } });
+    document.getElementById('w-skip').addEventListener('click', () => { if (run) { build(run); play(run, true); } });
+
+    worldsOpen = open;
+    worldsClose = close;
+    worldsIsOpen = () => !document.getElementById('worlds').hidden;
   }
 
   // Debug entry point

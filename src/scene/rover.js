@@ -87,6 +87,7 @@ export async function createRover(renderer, glbUrl, ctx) {
     PC.set(Math.round((mx + GRID.half) / gStep) * gStep - GRID.half, Math.round((my + GRID.half) / gStep) * gStep - GRID.half);
     PCA.set((PC.x - A.x) * 1000, (PC.y - A.y) * 1000);
     ctx.mapToScene(R, PC, 0, O);
+    if (nu.uFine) nu.uFine.value = fineAt(PC.x, PC.y);
   }
 
   // Bilinear sampling of the 40 m elevation at the pole (km), matching heroFine in the vertex shader
@@ -97,12 +98,25 @@ export async function createRover(renderer, glbUrl, ctx) {
     const fc = Math.min(1, Math.max(0, c - c0)), fr = Math.min(1, Math.max(0, r - r0)), i = r0 * hn + c0;
     return ((hh[i] * (1 - fc) + hh[i + 1] * fc) * (1 - fr) + (hh[i + hn] * (1 - fc) + hh[i + hn + 1] * fc) * fr) / 1000;
   }
+  // The 120 m mesh, sampled the same bilinear way. Used past the hero tile, where the near patch
+  // is drawn from coarseH() and the rover has to stand on that surface.
+  const inner = tiles.inner, inN = inner.size, inE = inner.half_extent_m / 1000, ih = inner.heights;
+  function coarseFine(mx, my) {
+    const c = (mx / (2 * inE) + 0.5) * inN - 0.5, r = (0.5 - my / (2 * inE)) * inN - 0.5;
+    const c0 = Math.max(0, Math.min(inN - 2, Math.floor(c))), r0 = Math.max(0, Math.min(inN - 2, Math.floor(r)));
+    const fc = Math.min(1, Math.max(0, c - c0)), fr = Math.min(1, Math.max(0, r - r0)), k = r0 * inN + c0;
+    return ((ih[k] * (1 - fc) + ih[k + 1] * fc) * (1 - fr) + (ih[k + inN] * (1 - fc) + ih[k + inN + 1] * fc) * fr) / 1000;
+  }
+
   // Patch surface height (km): interpolated over the triangles of the 4 m grid, exactly like the drawn ground, so the wheels neither float nor sink
   function heightLocal(lx, ly) {
     const gx = (lx - PCA.x) / PATCH.step, gy = (ly - PCA.y) / PATCH.step;
     const i = Math.floor(gx), j = Math.floor(gy), fx = gx - i, fy = gy - j;
     const vx = (ii) => PC.x + (ii * PATCH.step) / 1000, vy = (jj) => PC.y + (jj * PATCH.step) / 1000;
-    const h00 = heroFine(vx(i), vy(j)), h10 = heroFine(vx(i + 1), vy(j)), h01 = heroFine(vx(i), vy(j + 1)), h11 = heroFine(vx(i + 1), vy(j + 1));
+    // Follow whichever mesh the shader is drawing here, so the wheels meet the ground that is
+    // actually drawn rather than a finer surface the near patch is no longer showing.
+    const sample = nu.uFine.value ? heroFine : coarseFine;
+    const h00 = sample(vx(i), vy(j)), h10 = sample(vx(i + 1), vy(j)), h01 = sample(vx(i), vy(j + 1)), h11 = sample(vx(i + 1), vy(j + 1));
     if (fx + fy <= 1) return h00 + (h10 - h00) * fx + (h01 - h00) * fy;
     return h11 + (h01 - h11) * (1 - fx) + (h10 - h11) * (1 - fy);
   }
@@ -150,8 +164,16 @@ export async function createRover(renderer, glbUrl, ctx) {
   const tracks = createTracks(renderer);
   const mkShRT = () => new THREE.WebGLRenderTarget(SH.size, SH.size, { type: THREE.HalfFloatType, minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false });
   const shRT = { S: mkShRT(), K: mkShRT() };
+  // Does the 40 m hero tile actually cover this map point, with room for the patch around it?
+  // Outside it, heroFine() only clamps to the tile edge and would lay a flat false floor under
+  // the rover, so the near patch follows the 120 m mesh there instead (see near.js).
+  const heroFineHalf = hero.half_extent_m / 1000;
+  const fineAt = (mx, my) => (Math.abs(mx) <= heroFineHalf - PATCH.half / 1000
+    && Math.abs(my) <= heroFineHalf - PATCH.half / 1000) ? 1 : 0;
+
   const nu = {
     uLayer: { value: 0 },
+    uFine: { value: 1 },
     uPC: { value: PC }, uPCA: { value: PCA }, uO: { value: O },
     uMorph0: { value: PATCH.morph0 }, uMorph1: { value: PATCH.morph1 }, uGridE: { value: GRID.half }, uGridN: { value: GRID.n },
     uTrimR: { value: PATCH.trim }, uCamK: { value: new THREE.Vector3() },
@@ -797,8 +819,33 @@ export async function createRover(renderer, glbUrl, ctx) {
   }
 
   applyPose();
+  // Put the rover down at another site. A is mutated in place rather than reassigned because the
+  // patch maths, the shadow lookups and the rock field all hold this same vector -- moving it is
+  // what moves the whole near scene. The driven state is reset too: odometer, heading and the
+  // tracks belong to the place that was left behind.
+  function moveTo(site) {
+    const m = site?.map || (site && ctx.latLonToMap ? ctx.latLonToMap(R, site.lat, site.lon) : null);
+    if (!m) return;
+    A.set(m.x, m.y);
+    st.x = 0; st.y = 0; st.v = 0; st.w = 0; st.kappa = 0; st.odo = 0;
+    st.warn = ''; st.warnT = 0; st.rockBlocked = false; passRock = false;
+    recenter(0, 0);
+    // Nose towards the pole: it is the one direction that means the same thing at every site,
+    // and at the four named regions it is roughly the old crater-centre heading.
+    st.hdg = Math.atan2(-A.y, -A.x);
+    for (const w of WHEELS) { w.init = false; w.steer = 0; w.target = 0; w.roll = 0; w.phase = 0; }
+    pending.length = 0;
+    tracks.reset();
+    const f = sunFrame();
+    rocks.update(st.x, st.y, sun2, f.tanE, true);
+    for (let k = 0; k < 8 && rocks.blocked(wheelXY(), st.x, st.y); k++) {
+      st.x -= Math.cos(st.hdg) * 2.5; st.y -= Math.sin(st.hdg) * 2.5;
+    }
+    applyPose();
+  }
+
   return {
-    pass, scene, camera, state: st, mast, wheels: WHEELS, mass, DIM, MODE_EN,
+    pass, scene, camera, state: st, mast, wheels: WHEELS, mass, DIM, MODE_EN, moveTo,
     step, sync, renderPip, pick, label, info, screen, target, headingDir, view, clampCam, setActive, up: up0,
     setInput: (o) => Object.assign(input, o),
     // top forward speed in m/s

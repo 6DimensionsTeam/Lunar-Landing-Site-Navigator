@@ -419,7 +419,7 @@ export function createHud({ bootSteps }) {
   }
 
   return {
-    boot, bind, set, setOrbit, tick, frame, frameOrbit, buildSites,
+    boot, bind, pill, set, setOrbit, tick, frame, frameOrbit, buildSites,
     setRover, roverCard, roverChip,
     showRover: () => { reveal(rover); rover.focus({ preventScroll: true }); },
     hideRover: () => { conceal(rover); pcard.hidden = true; pcSel = null; hchip.hidden = true; },
