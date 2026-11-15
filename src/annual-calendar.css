@@ -95,6 +95,7 @@
 @media (max-width: 720px) {
   #select .ac-switch { top: 73px; right: 15px; }
   #select.ac-calendar-open .ac-switch { top: 12px; right: 12px; }
+  #select.ac-calendar-open .ac-shell::before { content: ''; position: absolute; inset: 0 0 auto; height: 60px; z-index: 1; background: #07090a; pointer-events: none; }
   #select .ac-panel { padding: 65px 12px 14px; gap: 12px; scroll-padding-top: 65px; }
   #select .ac-header { padding: 0; align-items: start; }
   #select .ac-title { font-size: 25px; }
