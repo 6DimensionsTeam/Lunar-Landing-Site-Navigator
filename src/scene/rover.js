@@ -108,15 +108,13 @@ export async function createRover(renderer, glbUrl, ctx) {
     return ((ih[k] * (1 - fc) + ih[k + 1] * fc) * (1 - fr) + (ih[k + inN] * (1 - fc) + ih[k + inN + 1] * fc) * fr) / 1000;
   }
 
-  // Patch surface height (km): interpolated over the triangles of the 4 m grid, exactly like the drawn ground, so the wheels neither float nor sink
+  // Patch surface height (km): interpolated over the triangles of the 4 m grid, exactly like the drawn ground, so the wheels neither float nor sink.
+  // ctx.heightAt handles hero → inner → outer tile fallback, matching what heightKm does in the shader for every site.
   function heightLocal(lx, ly) {
     const gx = (lx - PCA.x) / PATCH.step, gy = (ly - PCA.y) / PATCH.step;
     const i = Math.floor(gx), j = Math.floor(gy), fx = gx - i, fy = gy - j;
     const vx = (ii) => PC.x + (ii * PATCH.step) / 1000, vy = (jj) => PC.y + (jj * PATCH.step) / 1000;
-    // Match the GPU exactly: use the same sampler the near-patch shader uses for the whole patch.
-    // When uFine=1 the patch centre is ≥ PATCH.half inside heroFineHalf, so every corner within
-    // the patch (rover ≤ 100 m from centre) is also within heroFineHalf — heroFine stays accurate.
-    const sp = (mx, my) => nu.uFine.value ? heroFine(mx, my) : coarseFine(mx, my);
+    const sp = (mx, my) => { m2.set(mx, my); return ctx.heightAt(m2); };
     const h00 = sp(vx(i), vy(j)), h10 = sp(vx(i + 1), vy(j)), h01 = sp(vx(i), vy(j + 1)), h11 = sp(vx(i + 1), vy(j + 1));
     if (fx + fy <= 1) return h00 + (h10 - h00) * fx + (h01 - h00) * fy;
     return h11 + (h01 - h11) * (1 - fx) + (h10 - h11) * (1 - fy);

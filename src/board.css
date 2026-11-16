@@ -549,7 +549,11 @@
 }
 /* WHERE-AND-WHEN calendar view has an inline Advisory Board button in the right panel */
 #hud:has(> #select.ac-calendar-open:not([hidden])) .p2-board-launch { display: none; }
-/* Rover view: raise above the telemetry panel whose top is ~316 px from the viewport bottom */
+/* Rover view: raise above the telemetry dock whose top is ~356 px from the viewport bottom */
 #hud:has(> #rover:not([hidden])) .p2-board-launch {
-  bottom: max(330px, calc(env(safe-area-inset-bottom) + 311px));
+  bottom: max(370px, calc(env(safe-area-inset-bottom) + 355px));
+}
+/* Explore view: raise above "Back to Site Map" (sitemap-cta sits at calc(--pad + 3.4em)) */
+#hud:has(> #explore:not([hidden])) .p2-board-launch {
+  bottom: max(165px, calc(var(--pad) + 3.4em + 52px));
 }
