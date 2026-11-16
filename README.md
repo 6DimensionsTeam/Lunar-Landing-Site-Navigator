@@ -18,14 +18,27 @@ It shows where the Sun and Earth sit above the local horizon at any hour of 2028
 
 ## Running it
 
+**Prerequisites:** [Node.js](https://nodejs.org/) 18 or later.
+
 ```bash
+# 1. Clone the repo
+git clone https://github.com/6DimensionsTeam/Lunar-Landing-Site-Navigator.git
+cd Lunar-Landing-Site-Navigator
+
+# 2. Install dependencies
 npm install
-npm run dev          # http://localhost:5173
-npm run build        # writes a single self-contained dist/index.html
-npm test             # runs the data and advisor unit tests
+
+# 3. Start the dev server (hot-reloads on save)
+npm run dev          # opens at http://localhost:5173
+
+# 4. Build a self-contained file for distribution
+npm run build        # writes dist/index.html — no server needed, opens offline
+
+# 5. Run the tests
+npm test             # data integrity and advisor unit tests
 ```
 
-The build is one file: scripts, styles, fonts and terrain data are all inlined, so `dist/index.html` opens offline with no server.
+The production build is a single HTML file with all scripts, styles, fonts and terrain data inlined — share or open `dist/index.html` directly with no server.
 
 URL flags (development only):
 
