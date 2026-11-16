@@ -1,31 +1,20 @@
 # Lunar Landing Site Navigator
 
-A browser tool for comparing candidate landing sites at the lunar south pole: it shows where the Sun and
-the Earth sit above the local horizon, how much of 2028 a site is sunlit, and when direct-to-Earth
-communication is blocked by terrain.
+**Live:** [6dimensions.org](https://6dimensions.org)
 
-Built for the 2026 NASA International Space Apps Challenge, "Lunar Landing Site Navigator".
+A browser tool for comparing candidate landing sites at the lunar south pole, built by **6Dimensions** for the 2026 NASA International Space Apps Challenge.
+
+It shows where the Sun and Earth sit above the local horizon at any hour of 2028–2040, how much of each year a site is sunlit, when direct-to-Earth communication is blocked, and which sites survive a user-defined mission profile.
 
 ## What it does
 
-- **Candidate sites.** Four sites near the south pole (Shackleton Rim, Connecting Ridge, de Gerlache Rim,
-  Malapert Massif), each with a 360° horizon profile computed from LOLA elevation data.
-- **Sun and Earth from the ground.** For any hour of 2028 it computes the Sun's elevation with the solar
-  disk treated as an extended source (not a point), Earth visibility including topocentric parallax, and
-  the time to the next sunset.
-- **Full-year statistics.** Sunlit fraction, Earth-visible fraction, both at once, and the longest
-  continuous night, per site.
-- **Relay station.** A scene of a lunar relay station, placed on an assumed elliptical orbit
-  (≈300 km perilune, ≈16000 km apolune, 55° inclination, ≈24 h period). At that eccentricity the
-  orbit spends about three quarters of its period beyond its own semi-major axis, which is what
-  makes a high relay useful; whether the far point stands over the south pole depends on the
-  orbital plane's orientation, which this project does not model. The orbit is drawn as a
-  Keplerian ellipse and the station is parked at one point on it, so nothing here is a coverage
-  or availability result, and the real Gateway flies a near-rectilinear halo orbit that an
-  ellipse about the Moon cannot represent. The station model is built from NASA's public Gateway
-  Core mesh plus procedurally generated structure.
-- **Rover.** A polar rover from the Space ROS URDF, drivable with keyboard or touch, with a mast camera
-  and panel-level power readouts.
+- **Site survey.** Six candidate sites near the south pole — Shackleton Rim, Connecting Ridge, de Gerlache Rim, Malapert Massif, and two additional surveyed sites — each with 360° horizon profiles computed from LOLA 40 m elevation data.
+- **Where and when.** For any hour in 2028–2040 it computes Sun elevation (treating the solar disk as an extended source), Earth visibility including topocentric parallax, and the time to the next sunset or blackout.
+- **Mission configuration.** The user sets mission year, minimum sunlight fraction, maximum continuous night, Earth-link requirement and darkness tolerance; sites are ranked live against those constraints.
+- **Advisory Board.** Before committing to a site, an advisory board session presents expert opinions, historical mission evidence and a knowledge check; it generates a downloadable mission certificate.
+- **Rover.** A polar rover (Space ROS URDF mesh) drivable with keyboard or touch, with a mast camera, panel-level solar-power readouts and terrain telemetry. Stands on LOLA 40 m terrain in a rendered near-field scene.
+- **Relay station.** A lunar relay station on a Keplerian ellipse (≈ 300 km perilune, ≈ 16 000 km apolune, 55° inclination, ≈ 24 h period), built from NASA's public Gateway Core mesh.
+- **Robustness trial.** Tests the ranked order of sites against random mission profiles to show which candidates are consistently strong across a wide range of requirements.
 
 ## Running it
 
@@ -33,54 +22,55 @@ Built for the 2026 NASA International Space Apps Challenge, "Lunar Landing Site 
 npm install
 npm run dev          # http://localhost:5173
 npm run build        # writes a single self-contained dist/index.html
+npm test             # runs the data and advisor unit tests
 ```
 
-The build is one file: scripts, styles, fonts and terrain data are all inlined, so `dist/index.html`
-opens offline with no server.
+The build is one file: scripts, styles, fonts and terrain data are all inlined, so `dist/index.html` opens offline with no server.
 
 URL flags (development only):
 
 - `?trim` — core-alignment calibration panel, opens straight into the relay view.
 - `?orbit` — draw the full relay orbit ellipse in the relay view.
 
-## Data
+## Data sources
 
 | Source | What is used | Notes |
 |---|---|---|
 | [LOLA](https://imbrium.mit.edu/) polar DEMs (`ldem_85s_40m`, `ldem_75s_240m`) | terrain and horizon profiles | pre-processed into `src/data/terrain_*.bin` |
 | [JPL DE421](https://ssd.jpl.nasa.gov/planets/eph_export.html) | Sun and Earth ephemeris, 2026–2040 | `src/data/ephem.bin`, 3 h steps |
 | [NASA 3D Resources — Gateway Core](https://github.com/nasa/NASA-3D-Resources) | relay station core modules | `src/data/station.glb` |
-| [Space ROS `lunar_pole_exploration_rover`](https://github.com/space-ros) | rover mesh and joints | Apache-2.0, see the rover credit line in the UI |
-| [LOLA slope](https://trek.nasa.gov/moon/) `Slope_ldem_85s_20m_Spole_float_SP` | landing-zone slope | 20 m, same DEM as the terrain |
-| [LOLA average visibility](https://trek.nasa.gov/moon/) `AVGVISIB_85S_060M_201608_SP` and `_EARTH_SP` | zone sunlight and Earth link | 60 m, 18.6-year mean |
-| [Diviner](https://trek.nasa.gov/moon/) `diviner_tbol_max_SP` | cold-trap classification | ice is stable below about 110 K |
+| [Space ROS `lunar_pole_exploration_rover`](https://github.com/space-ros) | rover mesh and joints | Apache-2.0, credited in the UI |
+| [LOLA slope](https://trek.nasa.gov/moon/) `Slope_ldem_85s_20m_Spole_float_SP` | landing-zone slope map | 20 m resolution |
+| [LOLA average visibility](https://trek.nasa.gov/moon/) `AVGVISIB_85S_060M_201608_SP` and `_EARTH_SP` | zone sunlight and Earth-link | 60 m, 18.6-year mean |
+| [Diviner](https://trek.nasa.gov/moon/) `diviner_tbol_max_SP` | cold-trap classification | ice stable below ≈ 110 K |
 
-Horizon profiles are validated against JPL Horizons (`tools/validate_horizons.py`); site statistics are
-cross-checked in rank order against NASA's PGDA polar illumination maps and against the LOLA average
-Earth visibility product.
+Horizon profiles are validated against JPL Horizons (`tools/validate_horizons.py`). Site statistics are cross-checked in rank order against NASA's PGDA polar illumination maps and the LOLA average Earth visibility product.
 
-The landing-zone map (`tools/fetch_zones.py`, then `tools/prep_zones.py`) classifies the region into
-cold traps, prime ground, sunlit, flat and rough, on the same projection and extent as the inner
-terrain tile. A cell is 480 m, so a zone value is an area characteristic; per-site figures come from
-the full-resolution horizon profiles instead. Using LOLA and Diviner requires citing
-Mazarico, E., et al. (2011), *Illumination conditions of the lunar polar regions using LOLA
-topography*, Icarus 211, 1066-1081, doi:10.1016/j.icarus.2010.10.030.
+Using LOLA and Diviner data requires citing Mazarico, E., et al. (2011), *Illumination conditions of the lunar polar regions using LOLA topography*, Icarus 211, 1066–1081, doi:10.1016/j.icarus.2010.10.030.
 
 ## Repository layout
 
 ```
 index.html            markup and HUD
 src/main.js           app wiring, modes, render loop
+src/board.js          advisory board session and certificate
+src/router.js         URL-per-screen routing
+src/advisors.js       historical mission evidence
+src/annual-calendar.js  full-year sun/earth statistics
 src/scene/            terrain, sky, bodies, station, rover, shadow, post
 src/glsl/             terrain, haze and near-field shaders
-src/data/             generated data (ephemeris, terrain, meshes)
+src/data/             generated data (ephemeris, terrain, meshes, candidates)
+src/assets/           UI images and team assets
 tools/                offline processing: DEM prep, ephemeris, horizon profiles, zones, validation
+tests/                unit tests (node:test)
 ```
 
-`tools/` requires Python with numpy, scipy and skyfield; the raw DEMs and the DE421 SPK go in
-`data/raw/`, which is not tracked.
+`tools/` requires Python with numpy, scipy and skyfield; the raw DEMs and the DE421 SPK go in `data/raw/`, which is not tracked.
+
+## Team
+
+**6Dimensions** — 2026 NASA International Space Apps Challenge
 
 ## Licence
 
-Apache-2.0, see `LICENSE`. Model and data sources keep their own terms, listed above and credited in
-the UI.
+Apache-2.0, see `LICENSE`. Model and data sources keep their own terms as listed above and credited in the UI.
