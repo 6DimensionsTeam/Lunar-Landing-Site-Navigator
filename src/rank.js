@@ -95,11 +95,7 @@ function evaluate(site, zones, year, needs) {
   if (needs.iceNearby) verdicts.push({ key: 'ice', label: 'Ice nearby', pass: !!ground && ground.iceDistKm <= ICE_NEAR_KM, value: ground ? `${ground.iceDistKm.toFixed(0)} km` : '—' });
 
   const seismic = nearestFault(site);
-  const seismicPass = seismic != null && seismic.distanceKm > 100;
-  verdicts.push({ key: 'seismic', label: 'Seismic (fault proximity)', pass: seismicPass,
-    value: seismic ? `${seismic.distanceKm.toFixed(1)} km to mapped scarp; >100 km threshold` : 'No catalogue data' });
-  if (seismic && !seismicPass) fails.push(`Mapped fault within 100 km (${seismic.distanceKm.toFixed(1)} km)`);
-  if (seismicPass) notes.push(`nearest mapped scarp ${seismic.distanceKm.toFixed(1)} km away (hazard proxy only)`);
+  if (seismic) notes.push(`nearest mapped scarp ${seismic.distanceKm.toFixed(1)} km away; hazard proxy only, no established safe-distance threshold`);
   return { seismic, site, stats: st, ground, score, fails, notes, verdicts, meetsAll: fails.length === 0 };
 }
 
