@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { reviewSite } from '../src/advisors.js';
-const fields=['mission','year','source','failure','field','pass','value','note'];
+const fields=['mission','year','source','failure','field','pass','value','note','conditions'];
 test('pure contract returns sourced cases without certifying absent engineering evidence',()=>{
   for(const row of reviewSite()){
     assert.deepEqual(Object.keys(row),fields);

@@ -113,10 +113,11 @@ export async function createRover(renderer, glbUrl, ctx) {
     const gx = (lx - PCA.x) / PATCH.step, gy = (ly - PCA.y) / PATCH.step;
     const i = Math.floor(gx), j = Math.floor(gy), fx = gx - i, fy = gy - j;
     const vx = (ii) => PC.x + (ii * PATCH.step) / 1000, vy = (jj) => PC.y + (jj * PATCH.step) / 1000;
-    // Follow whichever mesh the shader is drawing here, so the wheels meet the ground that is
-    // actually drawn rather than a finer surface the near patch is no longer showing.
-    const sample = nu.uFine.value ? heroFine : coarseFine;
-    const h00 = sample(vx(i), vy(j)), h10 = sample(vx(i + 1), vy(j)), h01 = sample(vx(i), vy(j + 1)), h11 = sample(vx(i + 1), vy(j + 1));
+    // Match the GPU exactly: use the same sampler the near-patch shader uses for the whole patch.
+    // When uFine=1 the patch centre is ≥ PATCH.half inside heroFineHalf, so every corner within
+    // the patch (rover ≤ 100 m from centre) is also within heroFineHalf — heroFine stays accurate.
+    const sp = (mx, my) => nu.uFine.value ? heroFine(mx, my) : coarseFine(mx, my);
+    const h00 = sp(vx(i), vy(j)), h10 = sp(vx(i + 1), vy(j)), h01 = sp(vx(i), vy(j + 1)), h11 = sp(vx(i + 1), vy(j + 1));
     if (fx + fy <= 1) return h00 + (h10 - h00) * fx + (h01 - h00) * fy;
     return h11 + (h01 - h11) * (1 - fx) + (h10 - h11) * (1 - fy);
   }
@@ -484,7 +485,8 @@ export async function createRover(renderer, glbUrl, ctx) {
       const s1 = slopeDeg(st.x, st.y);
       let why = null;
       const rockHit = !passRock && rocks.blocked(wheelXY(), st.x, st.y);
-      if (Math.hypot(st.x, st.y) > DRIVE.range) why = `Outside working range (${(DRIVE.range / 1000).toFixed(1)} km from A)`;
+      const curDist = Math.hypot(st.x, st.y);
+      if (curDist > DRIVE.range) why = `Outside working range (${curDist.toFixed(0)} m from A, limit ${DRIVE.range} m)`;
       else if (s1 > DRIVE.slopeMax && s1 > st.slope) why = `Slope ${s1.toFixed(0)}° exceeds the ${DRIVE.slopeMax}° climb limit`;
       else if (rockHit) why = 'Rock too high ahead, go around';
       st.rockBlocked = !!why && rockHit;

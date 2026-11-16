@@ -1,3 +1,4 @@
+@import './board.css';
 /* Visual language: a mission-console look built from fine grids, rulers and hairlines on pure black,
    with flat translucent black panels rather than frosted glass. Rajdhani carries headings, labels and
    numerals; running text and small print fall to a neutral grotesque for contrast. Red is used only
@@ -42,6 +43,7 @@
   --sans: 'Rajdhani', var(--ui);
   --heavy: 'Rajdhani', var(--ui);
 }
+
 html,
 body {
   margin: 0;
@@ -736,6 +738,7 @@ body {
 .params { grid-area: sites; justify-self: start; width: var(--dock-w); box-sizing: border-box; }
 .params h2::before { content: ''; width: 0.55em; height: 0.55em; background: var(--fg); }
 .credit { margin: 0.9em 0 0; padding-top: 0.7em; border-top: 1px solid rgba(242, 244, 245, 0.13); font: 500 0.78em/1.4 var(--sans); letter-spacing: 0.06em; color: var(--dim); }
+.cite { display: block; margin-top: 0.35em; font: 500 0.72em/1.4 var(--sans); letter-spacing: 0; text-transform: none; color: var(--dim); }
 
 /* ---------- landing-zone survey (globe) ---------- */
 /* Scoped to the panel, not to every element carrying the class. The explore screen's ground-class
