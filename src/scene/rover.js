@@ -113,10 +113,10 @@ export async function createRover(renderer, glbUrl, ctx) {
     const gx = (lx - PCA.x) / PATCH.step, gy = (ly - PCA.y) / PATCH.step;
     const i = Math.floor(gx), j = Math.floor(gy), fx = gx - i, fy = gy - j;
     const vx = (ii) => PC.x + (ii * PATCH.step) / 1000, vy = (jj) => PC.y + (jj * PATCH.step) / 1000;
-    // Pick the sampler per corner so a quad that straddles the hero-tile edge does not apply
-    // the wrong surface to its outer vertices (the patch-centre flag nu.uFine only says which
-    // mesh the centre uses; corners near the tile edge may need the coarser grid instead).
-    const sp = (mx, my) => fineAt(mx, my) ? heroFine(mx, my) : coarseFine(mx, my);
+    // Match the GPU exactly: use the same sampler the near-patch shader uses for the whole patch.
+    // When uFine=1 the patch centre is ≥ PATCH.half inside heroFineHalf, so every corner within
+    // the patch (rover ≤ 100 m from centre) is also within heroFineHalf — heroFine stays accurate.
+    const sp = (mx, my) => nu.uFine.value ? heroFine(mx, my) : coarseFine(mx, my);
     const h00 = sp(vx(i), vy(j)), h10 = sp(vx(i + 1), vy(j)), h01 = sp(vx(i), vy(j + 1)), h11 = sp(vx(i + 1), vy(j + 1));
     if (fx + fy <= 1) return h00 + (h10 - h00) * fx + (h01 - h00) * fy;
     return h11 + (h01 - h11) * (1 - fx) + (h10 - h11) * (1 - fy);

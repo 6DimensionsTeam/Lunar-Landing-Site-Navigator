@@ -547,3 +547,9 @@
   bottom: max(115px, calc(env(safe-area-inset-bottom) + 96px));
   transform: none;
 }
+/* WHERE-AND-WHEN calendar view has an inline Advisory Board button in the right panel */
+#hud:has(> #select.ac-calendar-open:not([hidden])) .p2-board-launch { display: none; }
+/* Rover view: raise above the telemetry panel whose top is ~316 px from the viewport bottom */
+#hud:has(> #rover:not([hidden])) .p2-board-launch {
+  bottom: max(330px, calc(env(safe-area-inset-bottom) + 311px));
+}
