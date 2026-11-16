@@ -185,6 +185,34 @@ for the same site+year, fix the out-of-sync one.
 
 ---
 
+## TASK F — Hide Advisory Board launcher on WHERE-AND-WHEN calendar view
+**File**: `src/board.css`
+
+The WHERE-AND-WHEN screen (`#select.ac-calendar-open`) already has an inline "ADVISORY BOARD ›"
+button in the right panel. The floating `.p2-board-launch` button is redundant and covers content.
+
+**Fix**: add a `display: none` rule after the existing bottom-left positioning block:
+```css
+#hud:has(> #select.ac-calendar-open:not([hidden])) .p2-board-launch { display: none; }
+```
+
+---
+
+## TASK G — Advisory Board launcher overlaps rover telemetry panel
+**File**: `src/board.css`
+
+On the rover view the `.p2-board-launch` button sits at `bottom: max(115px, ...)`, which puts it
+inside the `.tele` panel (top ~316 px from viewport bottom). It needs a rover-specific override.
+
+**Fix**: add a rover-specific bottom override after the combined bottom-left rule:
+```css
+#hud:has(> #rover:not([hidden])) .p2-board-launch {
+  bottom: max(330px, calc(env(safe-area-inset-bottom) + 311px));
+}
+```
+
+---
+
 ## Merge plan (coordinator — do after all three agents finish)
 1. `src/scene/rover.js` — apply agent-rover's diff directly (no conflicts).
 2. `src/board.js` + `src/board.css` — copy in as new files (no conflicts).
