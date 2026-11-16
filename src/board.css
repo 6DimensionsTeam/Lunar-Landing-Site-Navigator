@@ -544,6 +544,6 @@
   left: max(16px, env(safe-area-inset-left));
   right: auto;
   top: auto;
-  bottom: max(80px, calc(env(safe-area-inset-bottom) + 64px));
+  bottom: max(115px, calc(env(safe-area-inset-bottom) + 96px));
   transform: none;
 }
