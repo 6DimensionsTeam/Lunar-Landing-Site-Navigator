@@ -249,10 +249,6 @@ async function boot() {
   // Set by the P1 block when a descent lands on the surface. While set, Back and Escape return
   // to the site map rather than to the home screen, which the mission flow skips.
   let cameFromMap = false;
-  // Which screen the zone map was opened from. It has two ways in -- the mission flow's own
-  // hand-off, and the "Choose a Site" button on the home view -- and Back has to undo whichever
-  // one was taken rather than always landing on home.
-  let selectionCameFromMission = false;
   let returnToMap = () => {};
   // Set by the analysis block. The key handler runs earlier in this file, so it asks rather
   // than reaching into that block.
@@ -629,7 +625,13 @@ async function boot() {
     return rig.landing(aspect(), latLonToMap(R, t.lat, t.lon));
   };
   const poseOf = (m) => (m === 'explore' ? landingPose() : m === 'orbit' ? rig.orbit(aspect(), station.place) : rig.home(aspect()));
-  function go(target) {
+  // showScreen: false flies the camera and sets mode as usual but leaves the destination
+  // screen down, for a caller that is about to raise a different screen of its own (the zone
+  // map's Back, returning to the arrival form rather than to home). Needed because the flight
+  // completes later, on its own render-loop callback -- hiding home right after calling go()
+  // does nothing, since showHome() has not run yet, and letting it run on schedule would raise
+  // home on top of whatever the caller shows a moment later and steal its focus.
+  function go(target, { showScreen = true } = {}) {
     if (mode === 'fly' || mode === target || mode === 'rover') return;
     // Whoever called this is taking the screen, so the descent's own loop steps aside and the
     // shared binding drives again from here.
@@ -645,15 +647,14 @@ async function boot() {
       if (target === 'home') {
         driftT0 = performance.now();
         look.yaw = look.pitch = 0;
-        hud.showHome();
-        hud.focusEnter();
+        if (showScreen) { hud.showHome(); hud.focusEnter(); }
         return;
       }
       Object.assign(controls, CTRL[target]);
       controls.target.copy(b.target);
       controls.enabled = true;
       controls.update();
-      if (target === 'explore') hud.showExplore(); else hud.showOrbit();
+      if (showScreen) { if (target === 'explore') hud.showExplore(); else hud.showOrbit(); }
     };
     controls.enabled = false;
     controls.autoRotate = false;
@@ -1171,6 +1172,13 @@ async function boot() {
     visit(site, entry, year) {
       if (this.visitHandler) this.visitHandler(site, entry, year);
     },
+    // Reopening the arrival form from outside P2's own block. The zone map's Back needs this:
+    // every route into site selection now comes from the mission flow, so Back returns there,
+    // and the screen it returns to is P2's to raise.
+    reopenArrival: null,
+    reopen() {
+      if (this.reopenArrival) this.reopenArrival();
+    },
   };
 
   // P2, mission framing. Shows #mission, calls mission.ready(cfg) when the launch ends.
@@ -1256,6 +1264,17 @@ async function boot() {
       };
       frame.last = surfaceFrame.last;
       missionFlow.ready.catch(error => console.error('Mission setup failed', error));
+      // Registered after the frame gate closes: the render-ownership test slices that gate out
+      // of the source and evaluates it on its own, so nothing referencing this block's bindings
+      // may sit inside it.
+      mission.reopenArrival = () => {
+        for (const id of ['select', 'explore', 'home', 'rover', 'orbit']) hud.hideScreen(id);
+        // The mission root already exists in index.html, so mission.js never toggles its
+        // visibility itself (it only does that for a root it created). onMissionReady hid it
+        // with hud.hideScreen, so it has to be raised the same way before restarting the stage.
+        hud.showScreen('mission');
+        missionFlow.show();
+      };
     } else {
       // No mission flow in this build (?trim), so nothing else is going to take the screen and
       // the home view has to be shown here instead.
@@ -1730,10 +1749,6 @@ async function boot() {
       placeRover(site, true);
       syncDescend();
       const m = latLonToMap(R, site.lat, site.lon);
-      // Committing to a site ends the "which one" question, so the map's own Back no longer has
-      // a mission flow to return to. Cleared here rather than in hide(), because leaveGlobe
-      // reads the flag after calling hide().
-      selectionCameFromMission = false;
       hide();
       hud.hideScreen('select');
       const a = { pos: camera.position.clone(), quat: camera.quaternion.clone(), fov: camera.fov };
@@ -1774,7 +1789,6 @@ async function boot() {
     // this block. Site selection always mounts before the calendar wires up, so no deferred
     // delivery is needed here the way onMission/onSite provide it.
     mission.onVisit(descendTo);
-
     // The board is reachable from anywhere: the floating launcher, the calendar's "Ask the
     // advisory board" button (lln:open-board event), or the #board URL. With no site given it
     // reviews the committed or framed site, else the top-ranked one.
@@ -1859,10 +1873,6 @@ async function boot() {
         lastYear = THREE.MathUtils.clamp(y, eph.startYear, eph.endYear);
       }
       buildSiteList(lastYear);
-      // Came in off the mission flow, so Back and Escape have to return there. Without this
-      // they landed on the home view, which is a screen the visitor had already passed and
-      // which offers no way back into the arrival form they were part way through.
-      selectionCameFromMission = true;
       show();
       resumeAfterMission();
     });
@@ -1873,40 +1883,30 @@ async function boot() {
     // buttons get this guard from go(), which refuses to start a second move while one is
     // running; this one does not go through go(), and taking the frame mid-flight would
     // leave the flight suspended with its completion callback pending.
-    hud.onSelect(() => { if (mode === 'home') { selectionCameFromMission = false; show(); } });
+    hud.onSelect(() => { if (mode === 'home') { show(); } });
 
-    // Back and Escape. Both ways into this screen come from home and neither moves the surface
-    // camera, so the usual case is not a flight: the home HUD goes back up directly, because
-    // go('home') from home is a no-op and would leave no screen up at all. The drift phase is
-    // restarted the way go('home') restarts it, so the home view eases back in from its base
-    // pose rather than jumping to wherever the unrendered phase ran on to while the globe held
-    // the frame. Focus lands on the control that leads back here.
+    // Back and Escape both leave this screen for the arrival form, which is where site
+    // selection is reached from and the screen the visitor is part way through. The camera is
+    // left where it is: P2 raises its own screen and the map's scene is not the surface's.
     //
-    // If the camera is somewhere else, it is flown back instead. Nothing in the interface can
-    // reach this screen from another mode -- the button is guarded above -- but the dev hook
-    // can, and restoring the home HUD over a camera parked at the landing site would leave
-    // the panels describing one view and the render showing another.
+    // If the camera is somewhere else it is flown back first, so the panels describe the view
+    // actually being rendered rather than one that has just been left.
     leaveGlobe = () => {
       if (!active) return;
       hide();
-      // Camera parked at another viewpoint: fly it back, and let go() put its screen up.
-      if (mode === 'explore' || mode === 'orbit') { go('home'); return; }
       // Mid-flight. The flight owns the screen and raises it on arrival, so adding one here
       // would leave two up at once; hide() has already restarted the loop that finishes it.
       if (mode === 'fly') return;
-      // Opened from the mission flow: put the arrival form back, not the home view. Home is a
-      // screen the visitor has already used and it has no route back into a mission part-way
-      // through, so returning there stranded them.
-      if (selectionCameFromMission) {
-        selectionCameFromMission = false;
-        hud.showScreen('mission');
-        return;
-      }
-      controls.enabled = false;
-      driftT0 = performance.now();
-      look.yaw = look.pitch = 0;
-      hud.showHome();
-      toSelectBtn.focus({ preventScroll: true });
+      // A camera parked in explore or orbit (reachable here via the dev hook, or by opening the
+      // map from the surface and leaving it rather than descending again) still has to be flown
+      // back and mode reset to home -- go() is what does both -- but the screen that comes up
+      // afterwards is the arrival form, not home, so home itself is left down.
+      if (mode !== 'home') go('home', { showScreen: false });
+      // Back to the arrival form, always. Site selection is only reachable from the mission
+      // flow now, so the home view is the wrong place to return to: it is a screen the visitor
+      // has already passed, and it carries panels (the advisory board among them) that assume
+      // something is about to land there, which nothing does any more.
+      mission.reopen();
     };
     backBtn.addEventListener('click', leaveGlobe);
 
