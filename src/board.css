@@ -539,7 +539,7 @@
 }
 /* 3D screens and site-survey: anchor bottom-left so the launcher doesn't cover the site info panel
    (top-right) or the candidates list (bottom-right). */
-#hud:has(> #explore:not([hidden]), > #rover:not([hidden]), > #orbit:not([hidden]), > #compare:not([hidden]), > #worlds:not([hidden])) .p2-board-launch,
+#hud:has(> #explore:not([hidden]), > #rover:not([hidden]), > #orbit:not([hidden]), > #compare:not([hidden])) .p2-board-launch,
 #hud:has(> #select:not([hidden])) .p2-board-launch {
   left: max(16px, env(safe-area-inset-left));
   right: auto;
@@ -552,4 +552,23 @@
 /* Rover view: raise above the telemetry panel whose top is ~316 px from the viewport bottom */
 #hud:has(> #rover:not([hidden])) .p2-board-launch {
   bottom: max(330px, calc(env(safe-area-inset-bottom) + 311px));
+}
+/* Robustness Trial: the bottom-left anchor above sat inside .w-tally, whose verdict sentence,
+   three-row definition list and credit line are each a different length depending on how far
+   the run has gotten -- there is no fixed height short enough to sit below it without the panel
+   growing back into the badge. Nothing sits top-right on this screen (the topbar's own fixed-
+   width "Back"/clock/"Change time" controls stop short of the edge), so the launcher moves there
+   instead of chasing a panel that keeps changing size underneath it. */
+#hud:has(> #worlds:not([hidden])) .p2-board-launch {
+  left: auto;
+  right: max(16px, env(safe-area-inset-right));
+  top: calc(var(--pad) + 40px);
+  bottom: auto;
+  transform: none;
+}
+/* On narrow windows the top-right launcher spans most of the width and reaches down into the
+   title's first row (TRIAL · SURVIVAL, NOT SCORE), measured at 541px wide: badge bottom 96px,
+   title top 88px. The title moves down below it; .w-stage starts at 27vh, which still clears it. */
+@media (max-width: 720px) {
+  #hud > #worlds .w-ttl { top: calc(var(--pad) + 92px); }
 }
