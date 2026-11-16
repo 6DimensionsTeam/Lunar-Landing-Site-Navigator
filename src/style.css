@@ -657,8 +657,13 @@ body {
   animation: blink 1.6s steps(1) infinite;
 }
 .rows { margin: 0; display: grid; gap: 0.5em; }
-/* equal-height panels spread their data rows evenly so the bottom is not left with a gap */
-.params .rows, .tele .rows, #orbit .live .rows, .rlive .rows { flex: 1; align-content: space-evenly; }
+/* equal-height panels spread their data rows evenly so the bottom is not left with a gap.
+   #select's two dock panels (.legend-rows and #sel-site-list) belong here too: .dock's
+   align-items: stretch matches .legend's height to whichever candidate-site list is taller,
+   and a 4-row legend stretched to a 6-candidate list's height otherwise packs its rows at the
+   top and leaves the rest of the panel, down to the credit line, empty. */
+.params .rows, .tele .rows, #orbit .live .rows, .rlive .rows,
+.legend-rows, #sel-site-list { flex: 1; align-content: space-evenly; }
 .panel > .credit { margin-top: auto; }
 .rows div { display: flex; align-items: center; justify-content: space-between; gap: 1.5em; }
 .rows dt { font: 600 0.95em/1 var(--sans); letter-spacing: 0.1em; color: var(--fg2); }
